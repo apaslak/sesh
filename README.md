@@ -565,8 +565,10 @@ bind-key "t" display-popup -w 80% -h 70% -E "sesh picker --tree"
 
 The default **Agents** view shows one row per OpenCode pane: colored symbol +
 status word, `tmux session > conversation`, and the conversation directory.
-Wide popups use aligned columns; narrow popups put the path on a second line.
-Paths under your home directory use `~`.
+Agent rows use two lines at every width, with a muted path below the title.
+Selection uses a full-row background and `›` marker without losing status colors.
+The header shows the match count; keyboard hints stay at the bottom.
+Colors follow Catppuccin Macchiato. Paths under your home directory use `~`.
 
 **Ctrl-O** toggles to **Sessions**: only tmux sessions without OpenCode, names
 only. Each view remembers its search and selection. Enter focuses the exact agent

@@ -13,18 +13,18 @@ import (
 func agentIndicator(status agentstatus.Status) (string, color.Color) {
 	switch status := status.(type) {
 	case agentstatus.Idle:
-		return "○ idle", lipgloss.Color("#9CA3AF")
+		return "○ idle", lipgloss.Color("#a5adcb")
 	case agentstatus.Working:
-		return "● working", lipgloss.Color("#FBBF24")
+		return "● working", lipgloss.Color("#eed49f")
 	case agentstatus.Attention:
-		return "! attention", lipgloss.Color("#F87171")
+		return "! attention", lipgloss.Color("#ed8796")
 	case agentstatus.Finished:
 		if status.Read {
-			return "✓ read", lipgloss.Color("#86EFAC")
+			return "✓ read", lipgloss.Color("#a6da95")
 		}
-		return "◆ unread", lipgloss.Color("#67E8F9")
+		return "◆ unread", lipgloss.Color("#8bd5ca")
 	default:
-		return "? unavailable", lipgloss.Color("#9CA3AF")
+		return "? unavailable", lipgloss.Color("#a5adcb")
 	}
 }
 
@@ -43,31 +43,32 @@ func agentDisplayPath(directory, home string) string {
 	return directory
 }
 
-// renderTreeRow reserves independent status/title/path columns on wide screens,
-// and puts the path on a second line when those columns would crowd the title.
+// renderTreeRow groups each agent's title and path into two lines, applying the
+// same selection background to every segment so nested colors cannot erase it.
 func renderTreeRow(row treeRow, width int, home string, selected bool) []string {
 	width = max(0, width)
-	lines := []string{}
-	if row.agent == nil {
-		lines = append(lines, ansi.Truncate("  "+row.label, width, "…"))
-	} else {
-		indicator, color := agentIndicator(row.agent.status)
-		badge := lipgloss.NewStyle().Foreground(color).Width(15).Render(indicator)
-		path := agentDisplayPath(row.agent.directory, home)
-		if width >= 80 {
-			pathWidth := min(max(20, ansi.StringWidth(path)), width/3)
-			nameWidth := max(1, width-2-15-2-pathWidth-2)
-			name := lipgloss.NewStyle().Width(nameWidth).Render(ansi.Truncate(row.label, nameWidth, "…"))
-			lines = append(lines, "  "+badge+"  "+name+"  "+ansi.Truncate(path, pathWidth, "…"))
-		} else {
-			lines = append(lines, ansi.Truncate("  "+badge+"  "+row.label, width, "…"))
-			lines = append(lines, ansi.Truncate("  "+path, width, "…"))
+	segment := func(text string, foreground color.Color) string {
+		style := lipgloss.NewStyle().Foreground(foreground)
+		if selected {
+			style = style.Background(lipgloss.Color("#363a4f"))
 		}
+		return style.Render(text)
 	}
+	finish := func(line string) string {
+		line = ansi.Truncate(line, width, "…")
+		return line + segment(strings.Repeat(" ", max(0, width-ansi.StringWidth(line))), lipgloss.Color("#cad3f5"))
+	}
+	marker := "  "
 	if selected {
-		for i := range lines {
-			lines[i] = lipgloss.NewStyle().Reverse(true).Render(lines[i])
-		}
+		marker = "› "
 	}
-	return lines
+	prefix := segment(" "+marker, lipgloss.Color("#c6a0f6"))
+	if row.agent == nil {
+		return []string{finish(prefix + segment(row.label, lipgloss.Color("#cad3f5")))}
+	}
+	indicator, statusColor := agentIndicator(row.agent.status)
+	badge := indicator + strings.Repeat(" ", max(0, 13-ansi.StringWidth(indicator)))
+	first := prefix + segment(badge+"  ", statusColor) + segment(row.label, lipgloss.Color("#cad3f5"))
+	second := segment("   "+agentDisplayPath(row.agent.directory, home), lipgloss.Color("#a5adcb"))
+	return []string{finish(first), finish(second)}
 }

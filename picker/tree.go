@@ -8,6 +8,7 @@ import (
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/joshmedeski/sesh/v2/agentstatus"
 	"github.com/joshmedeski/sesh/v2/model"
@@ -104,8 +105,8 @@ type TreeModel struct {
 
 func NewTreeModel(fetch TreeFetchFunc, query string) TreeModel {
 	input := textinput.New()
-	input.Prompt = "> "
-	input.Placeholder = "Filter conversations, sessions, paths..."
+	input.Prompt = "  › "
+	input.Placeholder = "Search conversations, sessions, paths…"
 	input.SetValue(query)
 	input.Focus()
 	home, _ := os.UserHomeDir()
@@ -270,11 +271,18 @@ func (m TreeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m TreeModel) View() tea.View {
+	if m.height <= 0 || m.width <= 0 {
+		view := tea.NewView("")
+		view.AltScreen = true
+		return view
+	}
 	header := m.view.String()
 	if m.source != TreeTmux {
 		header += " · " + m.source.String()
 	}
-	lines := []string{ansi.Truncate("sesh · "+header, max(0, m.width), "…"), ansi.Truncate(m.input.View(), max(0, m.width), "…")}
+	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#c6a0f6")).Render(header)
+	count := lipgloss.NewStyle().Foreground(lipgloss.Color("#a5adcb")).Render(fmt.Sprintf(" · %d", len(m.rows)))
+	lines := []string{ansi.Truncate("  "+title+count, m.width, "…"), ansi.Truncate(m.input.View(), m.width, "…"), ""}
 	available := max(0, m.height-4)
 	start, used := min(m.cursor, max(0, len(m.rows)-1)), 0
 	if len(m.rows) > 0 {
@@ -315,9 +323,17 @@ func (m TreeModel) View() tea.View {
 	if m.view == sessionsView {
 		nextView = "agents"
 	}
-	footer := "^o " + nextView + "  ^a all  ^t tmux  ^g configs  ^x zoxide  ^f find"
+	emphasis := lipgloss.NewStyle().Foreground(lipgloss.Color("#cad3f5"))
+	muted := lipgloss.NewStyle().Foreground(lipgloss.Color("#a5adcb"))
+	footer := "  " + emphasis.Render("Ctrl-O "+nextView+"  Enter open") + muted.Render("  ^a all  ^t tmux  ^g configs  ^x zoxide  ^f find")
 	if m.err != nil {
-		footer = "Refresh failed: " + safeTreeText(m.err.Error())
+		footer = lipgloss.NewStyle().Foreground(lipgloss.Color("#ed8796")).Render("  Refresh failed: " + safeTreeText(m.err.Error()))
+	}
+	if len(lines) > m.height-1 {
+		lines = lines[:max(0, m.height-1)]
+	}
+	for len(lines) < m.height-1 {
+		lines = append(lines, "")
 	}
 	lines = append(lines, ansi.Truncate(footer, max(0, m.width), "…"))
 	view := tea.NewView(strings.Join(lines, "\n"))

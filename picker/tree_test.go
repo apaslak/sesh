@@ -151,6 +151,62 @@ func TestTreeWideViewKeepsPathWhenTitleIsLong(t *testing.T) {
 	}
 }
 
+func TestTreeAgentRowsKeepPathBelowTitleAtEveryWidth(t *testing.T) {
+	m := NewTreeModel(nil, "payments")
+	m.accept(treeFixture())
+	for _, width := range []int{60, 120, 200} {
+		lines := renderTreeRow(m.rows[0], width, "", true)
+		require.Len(t, lines, 2)
+		first, second := ansi.Strip(lines[0]), ansi.Strip(lines[1])
+		require.Contains(t, first, "›")
+		require.Contains(t, first, "● working")
+		require.Contains(t, first, "work > Review payments")
+		require.NotContains(t, first, "/conversation/project")
+		require.Contains(t, second, "/conversation/project")
+		for _, line := range lines {
+			require.Equal(t, width, ansi.StringWidth(line))
+		}
+		unselected := renderTreeRow(m.rows[0], width, "", false)
+		require.NotContains(t, ansi.Strip(unselected[0]), "›")
+	}
+}
+
+func TestTreeHeaderCountsMatchesAndFooterStaysAtBottom(t *testing.T) {
+	m := NewTreeModel(nil, "payments")
+	m.width, m.height = 120, 15
+	m.accept(treeFixture())
+	lines := strings.Split(ansi.Strip(m.View().Content), "\n")
+	require.Len(t, lines, 15)
+	require.Contains(t, lines[0], "Agents · 1")
+	require.Contains(t, lines[14], "Ctrl-O sessions")
+	require.Contains(t, lines[14], "Enter open")
+	require.NotContains(t, strings.Join(lines[:14], "\n"), "Ctrl-O")
+	m.input.SetValue("no match")
+	m.filter("")
+	lines = strings.Split(ansi.Strip(m.View().Content), "\n")
+	require.Contains(t, lines[0], "Agents · 0")
+	require.Contains(t, strings.Join(lines, "\n"), "No matches")
+	require.Contains(t, lines[14], "Ctrl-O sessions")
+}
+
+func TestTreeLayoutFitsTinyTerminals(t *testing.T) {
+	for _, size := range []struct{ width, height int }{{0, 0}, {1, 1}, {20, 3}, {30, 5}} {
+		m := NewTreeModel(nil, "")
+		m.width, m.height = size.width, size.height
+		m.accept(treeFixture())
+		view := ansi.Strip(m.View().Content)
+		if size.height == 0 {
+			require.Empty(t, view)
+			continue
+		}
+		lines := strings.Split(view, "\n")
+		require.LessOrEqual(t, len(lines), size.height)
+		for _, line := range lines {
+			require.LessOrEqual(t, ansi.StringWidth(line), size.width)
+		}
+	}
+}
+
 func TestTreeNarrowViewMovesPathBelowTitleAndScrollsSelection(t *testing.T) {
 	m := NewTreeModel(nil, "")
 	m.width, m.height = 60, 6
