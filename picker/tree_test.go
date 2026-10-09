@@ -50,7 +50,7 @@ func TestTreeDefaultShowsAgentsBeforeAgentFreeSessions(t *testing.T) {
 	require.Equal(t, "$3", m.rows[3].key)
 	view := ansi.Strip(m.View().Content)
 	require.Contains(t, view, "Tmux")
-	require.Contains(t, view, "work > Review payments")
+	require.Contains(t, view, "work: Review payments")
 	require.Contains(t, view, "● working")
 	require.Contains(t, view, "/conversation/project")
 	require.Contains(t, view, "? unavailable")
@@ -93,7 +93,7 @@ func TestTreeSearchRanksContiguousMatchBeforeScatteredAgentMatch(t *testing.T) {
 	m.accept(data)
 	require.Len(t, m.rows, 2)
 	require.Equal(t, "zp6 can-2018", m.rows[0].label)
-	require.Equal(t, "zp4 can-2015 > CAN-2015 depends on PR #382967", m.rows[1].label)
+	require.Equal(t, "zp4 can-2015: CAN-2015 depends on PR #382967", m.rows[1].label)
 	m = updateTree(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	selection, picked := m.Chosen()
 	require.True(t, picked)
@@ -250,7 +250,7 @@ func TestTreeAgentRowsKeepPathInline(t *testing.T) {
 		first := ansi.Strip(lines[0])
 		require.Contains(t, first, "›")
 		require.Contains(t, first, "● working")
-		require.Contains(t, first, "work > Review payments")
+		require.Contains(t, first, "work: Review payments")
 		require.True(t, strings.HasSuffix(first, "  /conversation/project "), first)
 		require.Contains(t, lines[0], "38;2;165;173;203", "path retains muted foreground")
 		require.Contains(t, lines[0], "48;2;54;58;79", "selection retains row background")
@@ -316,7 +316,7 @@ func TestTreeBottomSearchAnchorsBestMatch(t *testing.T) {
 	require.Contains(t, lines[10], "? unavailable")
 	require.Contains(t, lines[10], "path unavailable")
 	require.Contains(t, lines[11], "› ● working")
-	require.Contains(t, lines[11], "work > Review payments")
+	require.Contains(t, lines[11], "work: Review payments")
 	require.Contains(t, lines[11], "/conversation/project")
 	require.Empty(t, strings.TrimSpace(lines[12]))
 	require.Contains(t, lines[13], "Search conversations")
@@ -336,9 +336,9 @@ func TestTreeBottomSearchKeepsInlineRowsInRankOrder(t *testing.T) {
 	lines := strings.Split(ansi.Strip(m.View().Content), "\n")
 	require.Contains(t, lines[3], "other")
 	require.Contains(t, lines[4], "plain")
-	require.Contains(t, lines[5], "work > OpenCode (title unavailable)")
+	require.Contains(t, lines[5], "work: OpenCode (title unavailable)")
 	require.Contains(t, lines[5], "path unavailable")
-	require.Contains(t, lines[6], "work > Review payments")
+	require.Contains(t, lines[6], "work: Review payments")
 	require.Contains(t, lines[6], "/conversation/project")
 	for _, index := range []int{6} {
 		require.Contains(t, raw[index], "\x1b[")
@@ -346,9 +346,9 @@ func TestTreeBottomSearchKeepsInlineRowsInRankOrder(t *testing.T) {
 	}
 	m.cursor = 1
 	lines = strings.Split(ansi.Strip(m.View().Content), "\n")
-	require.Contains(t, lines[5], "work > OpenCode (title unavailable)")
+	require.Contains(t, lines[5], "work: OpenCode (title unavailable)")
 	require.Contains(t, lines[5], "path unavailable")
-	require.Contains(t, lines[6], "work > Review payments")
+	require.Contains(t, lines[6], "work: Review payments")
 	require.Contains(t, lines[6], "/conversation/project")
 }
 
@@ -484,7 +484,7 @@ func TestTreeAgentPathRightAlignedWithInset(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, selected := range []bool{false, true} {
-				row := treeRow{label: "session > title", agent: &agentRow{status: agentstatus.Idle{}, directory: tc.directory}}
+				row := treeRow{label: "session: title", agent: &agentRow{status: agentstatus.Idle{}, directory: tc.directory}}
 				lines := renderTreeRow(row, tc.width, tc.home, selected)
 				require.Len(t, lines, 1)
 				path := ansi.Strip(lines[0])

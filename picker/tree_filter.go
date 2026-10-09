@@ -60,7 +60,7 @@ func buildTreeRows(data TreeData) []treeRow {
 				}
 				rows = append(rows, treeRow{
 					key:       session.ID + "/" + window.ID + "/" + pane.ID,
-					label:     safeTreeText(session.Name) + " > " + safeTreeText(title),
+					label:     safeTreeText(session.Name) + ": " + safeTreeText(title),
 					selection: TreeTmuxSelection{Target: tmux.PaneTarget{Session: session.ID, Window: window.ID, Pane: pane.ID}},
 					agent:     &agentRow{status: status.Status, directory: safeTreeText(directory)},
 				})

@@ -573,7 +573,7 @@ tmux sessions without OpenCode. Sessions already represented by agents do not
 get duplicate session rows. Agents rank by status: unread, attention, working,
 read, then idle/unavailable. Existing order is preserved within each group and
 among agent-free sessions. Agent rows show a colored symbol + status word,
-`tmux session > conversation`, and the conversation directory.
+`tmux session: conversation`, and the conversation directory.
 Agent rows use one line, with a muted, right-aligned path beside the title.
 Titles and paths truncate as needed rather than wrapping; status gets priority.
 Selection uses a full-row background and `›` marker without losing status colors.
