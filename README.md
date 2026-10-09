@@ -574,12 +574,16 @@ get duplicate session rows. Agent rows show a colored symbol + status word,
 `tmux session > conversation`, and the conversation directory.
 Agent rows use two lines at every width, with a muted, right-aligned path below the title.
 Selection uses a full-row background and `›` marker without losing status colors.
-The header shows the match count; keyboard hints stay at the bottom.
+The header shows the match count; search sits just above the bottom keyboard hints.
+Results grow upward from the search, with the first/best match nearest it and
+unused space above the list. Agent titles stay above their paths.
 Colors follow Catppuccin Macchiato. Paths under your home directory use `~`.
 
 One search filters agents and sessions together; there is no view toggle.
 Enter focuses the exact agent pane or the selected session's active pane.
-Tab/Shift-Tab navigate; Left/Right
+Up/Ctrl-P move upward through results; Down/Ctrl-N move toward the search.
+Tab selects the next-ranked result (upward); Shift-Tab selects the previous one.
+Left/Right
 edit the search text rather than folding a hierarchy.
 
 Fuzzy search matches session names, conversation titles, status, and conversation

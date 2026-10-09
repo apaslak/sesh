@@ -183,10 +183,10 @@ func (m TreeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			}
 			return m, nil
-		case "tab", "down", "ctrl+n":
+		case "tab", "up", "ctrl+p":
 			m.cursor = min(m.cursor+1, max(0, len(m.rows)-1))
 			return m, nil
-		case "shift+tab", "up", "ctrl+p":
+		case "shift+tab", "down", "ctrl+n":
 			m.cursor = max(0, m.cursor-1)
 			return m, nil
 		case "ctrl+o":
@@ -237,53 +237,76 @@ func (m TreeModel) View() tea.View {
 	}
 	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#c6a0f6")).Render(header)
 	count := lipgloss.NewStyle().Foreground(lipgloss.Color("#a5adcb")).Render(fmt.Sprintf(" · %d", len(m.rows)))
-	lines := []string{ansi.Truncate("  "+title+count, m.width, "…"), ansi.Truncate(m.input.View(), m.width, "…"), ""}
+	var lines []string
+	if m.height >= 3 {
+		lines = append(lines, ansi.Truncate("  "+title+count, m.width, "…"))
+	}
 	available := max(0, m.height-4)
-	start, used := min(m.cursor, max(0, len(m.rows)-1)), 0
-	if len(m.rows) > 0 {
-		used = len(renderTreeRow(m.rows[start], m.width, m.home, true))
-	}
-	for start > 0 {
-		height := len(renderTreeRow(m.rows[start-1], m.width, m.home, false))
-		if used+height > available {
-			break
+	var resultLines []string
+	if len(m.rows) > 0 && available > 0 {
+		// Keep ranking/selection in logical order. Only reverse whole visible
+		// blocks, so each agent's path stays below its title.
+		start := min(m.cursor, len(m.rows)-1)
+		selected := renderTreeRow(m.rows[start], m.width, m.home, true)
+		selected = selected[:min(len(selected), available)]
+		blocks := [][]string{selected}
+		used := len(selected)
+		for start > 0 {
+			block := renderTreeRow(m.rows[start-1], m.width, m.home, false)
+			if used+len(block) > available {
+				break
+			}
+			start--
+			blocks = append(blocks, block)
+			used += len(block)
 		}
-		start--
-		used += height
-	}
-	used = 0
-	for i := start; i < len(m.rows) && used < available; i++ {
-		rowLines := renderTreeRow(m.rows[i], m.width, m.home, i == m.cursor)
-		if used+len(rowLines) > available {
-			rowLines = rowLines[:available-used]
+		for _, block := range blocks {
+			resultLines = append(resultLines, block...)
 		}
-		lines = append(lines, rowLines...)
-		used += len(rowLines)
+		// Later-ranked rows go above the selection and earlier-ranked rows.
+		blocks = nil
+		for i := m.cursor + 1; i < len(m.rows); i++ {
+			block := renderTreeRow(m.rows[i], m.width, m.home, false)
+			if used+len(block) > available {
+				break
+			}
+			blocks = append(blocks, block)
+			used += len(block)
+		}
+		var upperLines []string
+		for i := len(blocks) - 1; i >= 0; i-- {
+			upperLines = append(upperLines, blocks[i]...)
+		}
+		resultLines = append(upperLines, resultLines...)
 	}
 	if len(m.rows) == 0 && available > 0 {
 		if m.loading {
-			lines = append(lines, "Loading...")
+			resultLines = append(resultLines, ansi.Truncate("Loading...", m.width, "…"))
 		} else {
 			message := "No matches"
 			if m.input.Value() == "" && m.source == TreeTmux {
 				message = "No tmux sessions"
 			}
-			lines = append(lines, ansi.Truncate(message, max(0, m.width), "…"))
+			resultLines = append(resultLines, ansi.Truncate(message, m.width, "…"))
 		}
 	}
+	for padding := available - len(resultLines); padding > 0; padding-- {
+		lines = append(lines, "")
+	}
+	lines = append(lines, resultLines...)
+	if m.height >= 4 {
+		lines = append(lines, "")
+	}
+	lines = append(lines, ansi.Truncate(m.input.View(), m.width, "…"))
 	emphasis := lipgloss.NewStyle().Foreground(lipgloss.Color("#cad3f5"))
 	muted := lipgloss.NewStyle().Foreground(lipgloss.Color("#a5adcb"))
 	footer := "  " + emphasis.Render("Enter open") + muted.Render("  ^a all  ^t tmux  ^g configs  ^x zoxide  ^f find")
 	if m.err != nil {
 		footer = lipgloss.NewStyle().Foreground(lipgloss.Color("#ed8796")).Render("  Refresh failed: " + safeTreeText(m.err.Error()))
 	}
-	if len(lines) > m.height-1 {
-		lines = lines[:max(0, m.height-1)]
+	if m.height >= 2 {
+		lines = append(lines, ansi.Truncate(footer, m.width, "…"))
 	}
-	for len(lines) < m.height-1 {
-		lines = append(lines, "")
-	}
-	lines = append(lines, ansi.Truncate(footer, max(0, m.width), "…"))
 	view := tea.NewView(strings.Join(lines, "\n"))
 	view.AltScreen = true
 	return view

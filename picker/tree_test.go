@@ -40,7 +40,7 @@ func updateTree(t *testing.T, m TreeModel, msg tea.Msg) TreeModel {
 func TestTreeDefaultShowsAgentsBeforeAgentFreeSessions(t *testing.T) {
 	m := NewTreeModel(nil, "")
 	data := treeFixture()
-	// Ordinary sessions preceding agents in tmux order must still render below them.
+	// Ordinary sessions preceding agents in tmux order must still rank after them.
 	data.Topology.Sessions[0], data.Topology.Sessions[1] = data.Topology.Sessions[1], data.Topology.Sessions[0]
 	m.accept(data)
 	require.Len(t, m.rows, 4)
@@ -199,10 +199,12 @@ func TestTreeAgentRowsKeepPathBelowTitleAtEveryWidth(t *testing.T) {
 func TestTreeHeaderCountsMatchesAndFooterStaysAtBottom(t *testing.T) {
 	m := NewTreeModel(nil, "payments")
 	m.width, m.height = 120, 15
+	m = updateTree(t, m, tea.WindowSizeMsg{Width: 120, Height: 15})
 	m.accept(treeFixture())
 	lines := strings.Split(ansi.Strip(m.View().Content), "\n")
 	require.Len(t, lines, 15)
 	require.Contains(t, lines[0], "Tmux · 1")
+	require.Contains(t, lines[13], "› payments")
 	require.Contains(t, lines[14], "Enter open")
 	require.NotContains(t, strings.Join(lines[:14], "\n"), "Ctrl-O")
 	m.input.SetValue("no match")
@@ -211,6 +213,174 @@ func TestTreeHeaderCountsMatchesAndFooterStaysAtBottom(t *testing.T) {
 	require.Contains(t, lines[0], "Tmux · 0")
 	require.Contains(t, strings.Join(lines, "\n"), "No matches")
 	require.Contains(t, lines[14], "Enter open")
+}
+
+func TestTreeBottomSearchAnchorsBestMatch(t *testing.T) {
+	m := NewTreeModel(nil, "")
+	m = updateTree(t, m, tea.WindowSizeMsg{Width: 120, Height: 15})
+	m.accept(treeFixture())
+	lines := strings.Split(ansi.Strip(m.View().Content), "\n")
+	require.Len(t, lines, 15)
+	require.Contains(t, lines[0], "Tmux · 4")
+	require.Empty(t, strings.TrimSpace(lines[1]))
+	require.Contains(t, lines[6], "other")
+	require.Contains(t, lines[7], "plain")
+	require.Contains(t, lines[8], "? unavailable")
+	require.Contains(t, lines[9], "path unavailable")
+	require.Contains(t, lines[10], "› ● working")
+	require.Contains(t, lines[10], "work > Review payments")
+	require.Contains(t, lines[11], "/conversation/project")
+	require.Empty(t, strings.TrimSpace(lines[12]))
+	require.Contains(t, lines[13], "Search conversations")
+	require.Contains(t, lines[14], "Enter open")
+	require.Equal(t, "$1/@1/%2", m.rows[0].key)
+	m = updateTree(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	selection, ok := m.Chosen()
+	require.True(t, ok)
+	require.Equal(t, TreeTmuxSelection{Target: tmux.PaneTarget{Session: "$1", Window: "@1", Pane: "%2"}}, selection)
+}
+
+func TestTreeBottomSearchReversesBlocksNotLines(t *testing.T) {
+	m := NewTreeModel(nil, "")
+	m = updateTree(t, m, tea.WindowSizeMsg{Width: 120, Height: 10})
+	m.accept(treeFixture())
+	raw := strings.Split(m.View().Content, "\n")
+	lines := strings.Split(ansi.Strip(m.View().Content), "\n")
+	require.Contains(t, lines[1], "other")
+	require.Contains(t, lines[2], "plain")
+	require.Contains(t, lines[3], "work > OpenCode (title unavailable)")
+	require.Contains(t, lines[4], "path unavailable")
+	require.Contains(t, lines[5], "work > Review payments")
+	require.Contains(t, lines[6], "/conversation/project")
+	for _, index := range []int{5, 6} {
+		require.Contains(t, raw[index], "\x1b[")
+		require.Equal(t, 120, ansi.StringWidth(raw[index]))
+	}
+	m.cursor = 1
+	lines = strings.Split(ansi.Strip(m.View().Content), "\n")
+	require.Contains(t, lines[3], "work > OpenCode (title unavailable)")
+	require.Contains(t, lines[4], "path unavailable")
+	require.Contains(t, lines[5], "work > Review payments")
+	require.Contains(t, lines[6], "/conversation/project")
+}
+
+func TestTreeBottomSearchNavigation(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		key        tea.KeyPressMsg
+		from, want int
+	}{
+		{"up", tea.KeyPressMsg{Code: tea.KeyUp}, 0, 1},
+		{"ctrl-p", tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl}, 0, 1},
+		{"tab", tea.KeyPressMsg{Code: tea.KeyTab}, 0, 1},
+		{"down", tea.KeyPressMsg{Code: tea.KeyDown}, 1, 0},
+		{"ctrl-n", tea.KeyPressMsg{Code: 'n', Mod: tea.ModCtrl}, 1, 0},
+		{"shift-tab", tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift}, 1, 0},
+		{"up clamps", tea.KeyPressMsg{Code: tea.KeyUp}, 3, 3},
+		{"down clamps", tea.KeyPressMsg{Code: tea.KeyDown}, 0, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := NewTreeModel(nil, "")
+			m.accept(treeFixture())
+			m.cursor = tc.from
+			m = updateTree(t, m, tc.key)
+			require.Equal(t, tc.want, m.cursor)
+			m = updateTree(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+			selection, ok := m.Chosen()
+			require.True(t, ok)
+			require.Equal(t, m.rows[tc.want].selection, selection)
+		})
+	}
+}
+
+func TestTreeBottomSearchScrollAndResize(t *testing.T) {
+	m := NewTreeModel(nil, "")
+	m.accept(treeFixture())
+	for _, height := range []int{6, 5, 10, 7} {
+		m = updateTree(t, m, tea.WindowSizeMsg{Width: 60, Height: height})
+		for _, index := range []int{0, 1, 2, 3, 2, 1, 0} {
+			m.cursor = index
+			lines := strings.Split(ansi.Strip(m.View().Content), "\n")
+			require.Len(t, lines, height)
+			require.Contains(t, strings.Join(lines[1:height-3], "\n"), "›")
+			if index < 2 && height >= 6 {
+				path := "/conversation/project"
+				if index == 1 {
+					path = "path unavailable"
+				}
+				require.Contains(t, strings.Join(lines[1:height-3], "\n"), path)
+			}
+			require.Contains(t, lines[height-2], "Search conversations")
+			for _, line := range lines {
+				require.LessOrEqual(t, ansi.StringWidth(line), 60)
+			}
+		}
+	}
+}
+
+func TestTreeBottomSearchStateLayouts(t *testing.T) {
+	for _, tc := range []struct {
+		name, query, message string
+		loading              bool
+		err                  error
+	}{
+		{"empty", "missing", "No matches", false, nil},
+		{"loading", "", "Loading...", true, nil},
+		{"error", "", "Refresh failed: offline", false, errors.New("offline")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := NewTreeModel(nil, tc.query)
+			m = updateTree(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+			m.loading, m.err = tc.loading, tc.err
+			lines := strings.Split(ansi.Strip(m.View().Content), "\n")
+			require.Len(t, lines, 10)
+			require.Contains(t, lines[8], "›")
+			require.Contains(t, strings.Join(lines, "\n"), tc.message)
+			m = updateTree(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+			_, picked := m.Chosen()
+			require.False(t, picked)
+		})
+	}
+	for _, source := range []TreeSource{TreeTmux, TreeAll, TreeConfig, TreeZoxide, TreeFind} {
+		m := NewTreeModel(nil, "work")
+		m.source = source
+		m.accept(treeFixture())
+		m = updateTree(t, m, tea.KeyPressMsg{Code: tea.KeyTab})
+		m = updateTree(t, m, treeLoaded{data: treeFixture()})
+		lines := strings.Split(ansi.Strip(m.View().Content), "\n")
+		require.Contains(t, lines[len(lines)-2], "› work")
+		require.Equal(t, "$1/@1/%3", m.selectedKey())
+	}
+}
+
+func TestTreeTinyLayoutPrioritizesSearch(t *testing.T) {
+	for height := 1; height <= 5; height++ {
+		m := NewTreeModel(nil, "payments")
+		m = updateTree(t, m, tea.WindowSizeMsg{Width: 80, Height: height})
+		m.accept(treeFixture())
+		lines := strings.Split(ansi.Strip(m.View().Content), "\n")
+		require.Len(t, lines, height)
+		inputRow := max(0, height-2)
+		require.Contains(t, lines[inputRow], "› payments")
+		if height >= 2 {
+			require.Contains(t, lines[height-1], "Enter open")
+		}
+		if height >= 3 {
+			require.Contains(t, lines[0], "Tmux · 1")
+		}
+		if height == 5 {
+			require.Contains(t, lines[1], "Review payments")
+		}
+	}
+}
+
+func TestTreeNarrowLoadingMessageFitsWidth(t *testing.T) {
+	m := NewTreeModel(nil, "")
+	m = updateTree(t, m, tea.WindowSizeMsg{Width: 3, Height: 8})
+	m.loading = true
+	for _, line := range strings.Split(m.View().Content, "\n") {
+		require.LessOrEqual(t, ansi.StringWidth(line), 3)
+	}
 }
 
 func TestTreeAgentPathRightAlignedWithInset(t *testing.T) {
