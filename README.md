@@ -563,16 +563,18 @@ set -g focus-events on
 bind-key "t" display-popup -w 80% -h 70% -E "sesh picker --tree"
 ```
 
-The default **Agents** view shows one row per OpenCode pane: colored symbol +
-status word, `tmux session > conversation`, and the conversation directory.
+The default **Tmux** view lists OpenCode agents first, followed by names of
+tmux sessions without OpenCode. Sessions already represented by agents do not
+get duplicate session rows. Agent rows show a colored symbol + status word,
+`tmux session > conversation`, and the conversation directory.
 Agent rows use two lines at every width, with a muted, right-aligned path below the title.
 Selection uses a full-row background and `›` marker without losing status colors.
 The header shows the match count; keyboard hints stay at the bottom.
 Colors follow Catppuccin Macchiato. Paths under your home directory use `~`.
 
-**Ctrl-O** toggles to **Sessions**: only tmux sessions without OpenCode, names
-only. Each view remembers its search and selection. Enter focuses the exact agent
-pane or the selected session's active pane. Tab/Shift-Tab navigate; Left/Right
+One search filters agents and sessions together; there is no view toggle.
+Enter focuses the exact agent pane or the selected session's active pane.
+Tab/Shift-Tab navigate; Left/Right
 edit the search text rather than folding a hierarchy.
 
 Fuzzy search matches session names, conversation titles, status, and conversation
@@ -580,7 +582,8 @@ directories. Live refresh retains query/selection as agents start or stop.
 Detection uses fresh usable plugin metadata or an OpenCode pane command;
 title/path mentions alone do not identify agents.
 
-Ctrl-A shows all sources; Ctrl-T returns to the current tmux view; Ctrl-G shows configs;
+Ctrl-A shows all sources; Ctrl-T returns to the unified tmux list, remembering
+its query and selection; Ctrl-G shows configs;
 Ctrl-X shows zoxide; Ctrl-F searches directories (`fd` required). This mode has
 no deletion shortcut. Other picker modes are unchanged.
 

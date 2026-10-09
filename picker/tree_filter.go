@@ -32,13 +32,12 @@ func safeTreeText(text string) string {
 	}, ansi.Strip(text))
 }
 
-func buildTreeRows(data TreeData, view tmuxView) []treeRow {
+func buildTreeRows(data TreeData) []treeRow {
 	rows := []treeRow{}
+	sessions := []treeRow{}
 	for _, session := range data.Topology.Sessions {
-		if view == sessionsView {
-			if !sessionHasOpenCode(session, data.Statuses) {
-				rows = append(rows, treeRow{key: session.ID, label: safeTreeText(session.Name), selection: TreeTmuxSelection{Target: tmux.SessionTarget{Session: session.ID}}})
-			}
+		if !sessionHasOpenCode(session, data.Statuses) {
+			sessions = append(sessions, treeRow{key: session.ID, label: safeTreeText(session.Name), selection: TreeTmuxSelection{Target: tmux.SessionTarget{Session: session.ID}}})
 			continue
 		}
 		for _, window := range session.Windows {
@@ -67,6 +66,7 @@ func buildTreeRows(data TreeData, view tmuxView) []treeRow {
 			}
 		}
 	}
+	rows = append(rows, sessions...)
 	for _, key := range data.Entries.OrderedIndex {
 		entry, exists := data.Entries.Directory[key]
 		if !exists || entry.Src == "tmux" {
@@ -77,7 +77,7 @@ func buildTreeRows(data TreeData, view tmuxView) []treeRow {
 	return rows
 }
 
-// paneHasOpenCode uses the same detection for both mutually exclusive views.
+// paneHasOpenCode keeps agent rows and agent-free session rows mutually exclusive.
 func paneHasOpenCode(pane tmux.TreePane, status agentstatus.Snapshot) bool {
 	return status.Status != nil || strings.Contains(strings.ToLower(pane.Command), "opencode")
 }

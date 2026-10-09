@@ -64,22 +64,8 @@ type treeLoaded struct {
 }
 type treeTick struct{}
 
-// tmuxView partitions live tmux entries into agent panes and agent-free sessions.
-type tmuxView uint8
-
-const (
-	agentsView tmuxView = iota
-	sessionsView
-)
-
-func (v tmuxView) String() string {
-	if v == sessionsView {
-		return "Sessions"
-	}
-	return "Agents"
-}
-
-type treeViewState struct {
+// treeListState restores the unified tmux list after visiting another source.
+type treeListState struct {
 	query, key string
 	cursor     int
 }
@@ -91,9 +77,7 @@ type TreeModel struct {
 	generation            uint64
 	input                 textinput.Model
 	all, rows             []treeRow
-	view                  tmuxView
-	views                 [2]treeViewState
-	data                  TreeData
+	tmuxState             treeListState
 	pendingKey            string
 	home                  string
 	cursor, width, height int
@@ -152,17 +136,16 @@ func (m *TreeModel) accept(data TreeData) {
 		key = m.pendingKey
 	}
 	m.pendingKey = ""
-	m.data = data
-	m.all = buildTreeRows(data, m.view)
+	m.all = buildTreeRows(data)
 	m.filter(key)
 }
 
-func (m *TreeModel) saveView() {
+func (m *TreeModel) saveTmuxState() {
 	if m.loading && len(m.rows) == 0 {
-		m.views[m.view].query = m.input.Value()
+		m.tmuxState.query = m.input.Value()
 		return
 	}
-	m.views[m.view] = treeViewState{query: m.input.Value(), key: m.selectedKey(), cursor: m.cursor}
+	m.tmuxState = treeListState{query: m.input.Value(), key: m.selectedKey(), cursor: m.cursor}
 }
 func (m TreeModel) Chosen() (TreeSelection, bool) { return m.chosen, m.chosen != nil && !m.quit }
 
@@ -207,37 +190,10 @@ func (m TreeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cursor = max(0, m.cursor-1)
 			return m, nil
 		case "ctrl+o":
-			if m.source == TreeTmux {
-				m.saveView()
-			}
-			if m.view == agentsView {
-				m.view = sessionsView
-			} else {
-				m.view = agentsView
-			}
-			state := m.views[m.view]
-			m.pendingKey = state.key
-			m.input.SetValue(state.query)
-			m.cursor = state.cursor
-			if m.source != TreeTmux {
-				m.source = TreeTmux
-				m.generation++
-				m.loading = m.fetch != nil
-				m.data = TreeData{}
-				m.all = nil
-				m.rows = nil
-				m.err = nil
-				return m, m.load()
-			}
-			m.all = buildTreeRows(m.data, m.view)
-			m.filter(state.key)
-			if !m.loading {
-				m.pendingKey = ""
-			}
 			return m, nil
 		case "ctrl+a", "ctrl+t", "ctrl+g", "ctrl+x", "ctrl+f":
 			if m.source == TreeTmux {
-				m.saveView()
+				m.saveTmuxState()
 			}
 			sources := map[string]TreeSource{"ctrl+a": TreeAll, "ctrl+t": TreeTmux, "ctrl+g": TreeConfig, "ctrl+x": TreeZoxide, "ctrl+f": TreeFind}
 			m.source = sources[key]
@@ -245,11 +201,10 @@ func (m TreeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.loading = m.fetch != nil
 			m.all = nil
 			m.rows = nil
-			m.data = TreeData{}
 			m.cursor = 0
 			m.pendingKey = ""
 			if m.source == TreeTmux {
-				state := m.views[m.view]
+				state := m.tmuxState
 				m.input.SetValue(state.query)
 				m.cursor = state.cursor
 				m.pendingKey = state.key
@@ -276,9 +231,9 @@ func (m TreeModel) View() tea.View {
 		view.AltScreen = true
 		return view
 	}
-	header := m.view.String()
+	header := "Tmux"
 	if m.source != TreeTmux {
-		header += " · " + m.source.String()
+		header = m.source.String()
 	}
 	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#c6a0f6")).Render(header)
 	count := lipgloss.NewStyle().Foreground(lipgloss.Color("#a5adcb")).Render(fmt.Sprintf(" · %d", len(m.rows)))
@@ -311,21 +266,14 @@ func (m TreeModel) View() tea.View {
 		} else {
 			message := "No matches"
 			if m.input.Value() == "" && m.source == TreeTmux {
-				message = "No OpenCode agents"
-				if m.view == sessionsView {
-					message = "No sessions without OpenCode"
-				}
+				message = "No tmux sessions"
 			}
 			lines = append(lines, ansi.Truncate(message, max(0, m.width), "…"))
 		}
 	}
-	nextView := "sessions"
-	if m.view == sessionsView {
-		nextView = "agents"
-	}
 	emphasis := lipgloss.NewStyle().Foreground(lipgloss.Color("#cad3f5"))
 	muted := lipgloss.NewStyle().Foreground(lipgloss.Color("#a5adcb"))
-	footer := "  " + emphasis.Render("Ctrl-O "+nextView+"  Enter open") + muted.Render("  ^a all  ^t tmux  ^g configs  ^x zoxide  ^f find")
+	footer := "  " + emphasis.Render("Enter open") + muted.Render("  ^a all  ^t tmux  ^g configs  ^x zoxide  ^f find")
 	if m.err != nil {
 		footer = lipgloss.NewStyle().Foreground(lipgloss.Color("#ed8796")).Render("  Refresh failed: " + safeTreeText(m.err.Error()))
 	}

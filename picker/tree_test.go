@@ -37,14 +37,19 @@ func updateTree(t *testing.T, m TreeModel, msg tea.Msg) TreeModel {
 	}
 }
 
-func TestTreeDefaultShowsOnlyFlatAgents(t *testing.T) {
+func TestTreeDefaultShowsAgentsBeforeAgentFreeSessions(t *testing.T) {
 	m := NewTreeModel(nil, "")
-	m.accept(treeFixture())
-	require.Len(t, m.rows, 2)
+	data := treeFixture()
+	// Ordinary sessions preceding agents in tmux order must still render below them.
+	data.Topology.Sessions[0], data.Topology.Sessions[1] = data.Topology.Sessions[1], data.Topology.Sessions[0]
+	m.accept(data)
+	require.Len(t, m.rows, 4)
 	require.Equal(t, "$1/@1/%2", m.rows[0].key)
 	require.Equal(t, "$1/@1/%3", m.rows[1].key)
+	require.Equal(t, "$2", m.rows[2].key)
+	require.Equal(t, "$3", m.rows[3].key)
 	view := ansi.Strip(m.View().Content)
-	require.Contains(t, view, "Agents")
+	require.Contains(t, view, "Tmux")
 	require.Contains(t, view, "work > Review payments")
 	require.Contains(t, view, "● working")
 	require.Contains(t, view, "/conversation/project")
@@ -56,40 +61,33 @@ func TestTreeDefaultShowsOnlyFlatAgents(t *testing.T) {
 	require.NotContains(t, view, "preview")
 }
 
-func TestTreeToggleShowsOnlySessionsWithoutAgents(t *testing.T) {
-	m := NewTreeModel(nil, "")
-	m.accept(treeFixture())
-	m = updateTree(t, m, tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
-	require.Len(t, m.rows, 2)
-	require.Equal(t, "plain", m.rows[0].label)
-	require.Equal(t, "other", m.rows[1].label)
+func TestTreeUnifiedSearchFindsSessionWithoutHiddenPaneDetails(t *testing.T) {
+	m := NewTreeModel(nil, "scratch")
+	data := treeFixture()
+	data.Topology.Sessions[1].Name = "scratch"
+	m.accept(data)
+	require.Len(t, m.rows, 1)
+	require.Equal(t, "scratch", m.rows[0].label)
 	view := ansi.Strip(m.View().Content)
-	require.Contains(t, view, "Sessions")
-	require.NotContains(t, view, "work")
 	require.NotContains(t, view, "hidden-editor")
-	require.NotContains(t, view, "working")
 
 	m = updateTree(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	selection, picked := m.Chosen()
 	require.True(t, picked)
 	require.Equal(t, TreeTmuxSelection{Target: tmux.SessionTarget{Session: "$2"}}, selection)
+	m.input.SetValue("hidden-editor")
+	m.filter("")
+	require.Empty(t, m.rows)
 }
 
-func TestTreeToggleRemembersEachViewsSearchAndSelection(t *testing.T) {
+func TestTreeCtrlODoesNotSwitchUnifiedList(t *testing.T) {
 	m := NewTreeModel(nil, "work")
 	m.accept(treeFixture())
 	m.cursor = 1
 	m = updateTree(t, m, tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
-	require.Equal(t, "", m.input.Value())
-	require.Len(t, m.rows, 2)
-	m.input.SetValue("plain")
-	m.filter("")
-	m = updateTree(t, m, tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
 	require.Equal(t, "work", m.input.Value())
 	require.Equal(t, "$1/@1/%3", m.rows[m.cursor].key)
-	m = updateTree(t, m, tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
-	require.Equal(t, "plain", m.input.Value())
-	require.Equal(t, "$2", m.rows[m.cursor].key)
+	require.NotContains(t, m.View().Content, "Ctrl-O")
 }
 
 func TestTreeAgentSearchMatchesSessionConversationAndDirectory(t *testing.T) {
@@ -177,16 +175,15 @@ func TestTreeHeaderCountsMatchesAndFooterStaysAtBottom(t *testing.T) {
 	m.accept(treeFixture())
 	lines := strings.Split(ansi.Strip(m.View().Content), "\n")
 	require.Len(t, lines, 15)
-	require.Contains(t, lines[0], "Agents · 1")
-	require.Contains(t, lines[14], "Ctrl-O sessions")
+	require.Contains(t, lines[0], "Tmux · 1")
 	require.Contains(t, lines[14], "Enter open")
 	require.NotContains(t, strings.Join(lines[:14], "\n"), "Ctrl-O")
 	m.input.SetValue("no match")
 	m.filter("")
 	lines = strings.Split(ansi.Strip(m.View().Content), "\n")
-	require.Contains(t, lines[0], "Agents · 0")
+	require.Contains(t, lines[0], "Tmux · 0")
 	require.Contains(t, strings.Join(lines, "\n"), "No matches")
-	require.Contains(t, lines[14], "Ctrl-O sessions")
+	require.Contains(t, lines[14], "Enter open")
 }
 
 func TestTreeAgentPathRightAlignedWithInset(t *testing.T) {
@@ -276,18 +273,24 @@ func TestTreeRefreshPreservesSelectionAndQuery(t *testing.T) {
 	require.Equal(t, "work", m.input.Value())
 }
 
-func TestTreeRefreshMovesSessionsBetweenViews(t *testing.T) {
+func TestTreeRefreshReplacesAgentsWithSessionAndPreservesQuery(t *testing.T) {
 	m := NewTreeModel(nil, "")
 	m.accept(treeFixture())
 	data := treeFixture()
 	data.Statuses = nil
 	data.Topology.Sessions[0].Windows[0].Panes[2].Command = "zsh"
 	m.accept(data)
-	require.Empty(t, m.rows)
-	m = updateTree(t, m, tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
 	require.Len(t, m.rows, 3)
+	require.Equal(t, "$1", m.rows[0].key)
 	m.accept(treeFixture())
-	require.Len(t, m.rows, 2)
+	require.Len(t, m.rows, 4)
+	require.Equal(t, "$1/@1/%2", m.rows[0].key)
+	m.input.SetValue("work")
+	m.filter("")
+	m.accept(data)
+	require.Equal(t, "work", m.input.Value())
+	require.Len(t, m.rows, 1)
+	require.Equal(t, "$1", m.selectedKey())
 }
 
 func TestTreeSourceShortcutsAndStaleLoads(t *testing.T) {
@@ -316,15 +319,14 @@ func TestTreeReturningFromSourceRestoresTmuxView(t *testing.T) {
 	require.Equal(t, "$1/@1/%3", m.selectedKey())
 }
 
-func TestTreeToggleDuringLoadRetainsPendingSelection(t *testing.T) {
+func TestTreeSourceReturnDuringLoadRetainsPendingSelection(t *testing.T) {
 	m := NewTreeModel(func(TreeSource) (TreeData, error) { return treeFixture(), nil }, "work")
 	m = updateTree(t, m, treeLoaded{data: treeFixture()})
 	m.cursor = 1
 	m = updateTree(t, m, tea.KeyPressMsg{Code: 'g', Mod: tea.ModCtrl})
-	m = updateTree(t, m, tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
-	m = updateTree(t, m, tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
-	m = updateTree(t, m, tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
-	m = updateTree(t, m, tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
+	m = updateTree(t, m, tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
+	m = updateTree(t, m, tea.KeyPressMsg{Code: 'g', Mod: tea.ModCtrl})
+	m = updateTree(t, m, tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
 	m = updateTree(t, m, treeLoaded{generation: m.generation, data: treeFixture()})
 	require.Equal(t, "work", m.input.Value())
 	require.Equal(t, "$1/@1/%3", m.selectedKey())
