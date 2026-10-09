@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - "*"
+      - "v*"
 
 permissions:
   contents: write
@@ -17,6 +17,7 @@ jobs:
 
   goreleaser:
     name: Build and Publish
+    if: github.repository == 'apaslak/sesh'
     needs: tests
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -29,6 +30,16 @@ jobs:
         uses: actions/setup-go@v7
         with:
           go-version: "1.26"
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      - name: Check bundled OpenCode plugin
+        working-directory: plugins/opencode-sesh
+        run: |
+          bun install --frozen-lockfile
+          bun test
+          bun run typecheck
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7
         with:
@@ -36,4 +47,4 @@ jobs:
           version: "~> v2"
           args: release --clean
         env:
-          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

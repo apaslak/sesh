@@ -91,6 +91,11 @@ Sesh is a CLI that helps you create and manage tmux sessions quickly and easily 
 
 ## How to install
 
+**Using this fork's OpenCode picker?** Follow [FORK_SETUP.md](FORK_SETUP.md) for
+prebuilt macOS/Linux binaries, the matching plugin, and tmux setup—no Go required
+on the receiving machine. Fork assets require a published fork release.
+The package-manager instructions below install **upstream sesh**, not this fork.
+
 <details>
   <summary>Homebrew</summary>
 

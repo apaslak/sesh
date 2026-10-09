@@ -1,5 +1,9 @@
 # OpenCode V2 → sesh status bridge
 
+For a prebuilt fork binary plus this plugin, start with
+[the fork setup guide](../../FORK_SETUP.md). Source-checkout development/setup is
+described below.
+
 CLI-only plugin for `sesh picker --tree`. Requires OpenCode **2.0.26** or later
 with compatible public CLI APIs, tmux, and focus events enabled:
 
