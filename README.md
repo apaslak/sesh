@@ -572,11 +572,12 @@ The default **Tmux** view lists OpenCode agents first, followed by names of
 tmux sessions without OpenCode. Sessions already represented by agents do not
 get duplicate session rows. Agent rows show a colored symbol + status word,
 `tmux session > conversation`, and the conversation directory.
-Agent rows use two lines at every width, with a muted, right-aligned path below the title.
+Agent rows use one line, with a muted, right-aligned path beside the title.
+Titles and paths truncate as needed rather than wrapping; status gets priority.
 Selection uses a full-row background and `›` marker without losing status colors.
 The header shows the match count; search sits just above the bottom keyboard hints.
 Results grow upward from the search, with the first/best match nearest it and
-unused space above the list. Agent titles stay above their paths.
+unused space above the list.
 Colors follow Catppuccin Macchiato. Paths under your home directory use `~`.
 
 One search filters agents and sessions together; there is no view toggle.

@@ -245,7 +245,7 @@ func (m TreeModel) View() tea.View {
 	var resultLines []string
 	if len(m.rows) > 0 && available > 0 {
 		// Keep ranking/selection in logical order. Only reverse whole visible
-		// blocks, so each agent's path stays below its title.
+		// rows, so each agent's status, title, and inline path stay together.
 		start := min(m.cursor, len(m.rows)-1)
 		selected := renderTreeRow(m.rows[start], m.width, m.home, true)
 		selected = selected[:min(len(selected), available)]

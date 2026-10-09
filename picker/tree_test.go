@@ -176,23 +176,45 @@ func TestTreeWideViewKeepsPathWhenTitleIsLong(t *testing.T) {
 	}
 }
 
-func TestTreeAgentRowsKeepPathBelowTitleAtEveryWidth(t *testing.T) {
+func TestTreeAgentRowsKeepPathInline(t *testing.T) {
 	m := NewTreeModel(nil, "payments")
 	m.accept(treeFixture())
-	for _, width := range []int{60, 120, 200} {
+	for _, width := range []int{80, 120, 200} {
 		lines := renderTreeRow(m.rows[0], width, "", true)
-		require.Len(t, lines, 2)
-		first, second := ansi.Strip(lines[0]), ansi.Strip(lines[1])
+		require.Len(t, lines, 1)
+		first := ansi.Strip(lines[0])
 		require.Contains(t, first, "›")
 		require.Contains(t, first, "● working")
 		require.Contains(t, first, "work > Review payments")
-		require.NotContains(t, first, "/conversation/project")
-		require.Contains(t, second, "/conversation/project")
+		require.True(t, strings.HasSuffix(first, "  /conversation/project "), first)
+		require.Contains(t, lines[0], "38;2;165;173;203", "path retains muted foreground")
+		require.Contains(t, lines[0], "48;2;54;58;79", "selection retains row background")
 		for _, line := range lines {
 			require.Equal(t, width, ansi.StringWidth(line))
 		}
 		unselected := renderTreeRow(m.rows[0], width, "", false)
 		require.NotContains(t, ansi.Strip(unselected[0]), "›")
+	}
+}
+
+func TestTreeAgentInlineRowTruncatesWithoutHidingStatus(t *testing.T) {
+	row := treeRow{label: strings.Repeat("long title ", 30), agent: &agentRow{
+		status: agentstatus.Attention{Reason: "permission"}, directory: "/a/very/long/conversation/path",
+	}}
+	for _, width := range []int{0, 1, 10, 20, 30, 40, 60, 120} {
+		lines := renderTreeRow(row, width, "", true)
+		require.Len(t, lines, 1)
+		line := ansi.Strip(lines[0])
+		require.Equal(t, width, ansi.StringWidth(line))
+		require.NotContains(t, line, "\n")
+		if width >= 20 {
+			require.Contains(t, line, "! attention")
+		}
+		if width >= 30 {
+			require.Contains(t, line, "lon")
+			require.Contains(t, line, "/a/")
+			require.Contains(t, line, "…")
+		}
 	}
 }
 
@@ -223,12 +245,13 @@ func TestTreeBottomSearchAnchorsBestMatch(t *testing.T) {
 	require.Len(t, lines, 15)
 	require.Contains(t, lines[0], "Tmux · 4")
 	require.Empty(t, strings.TrimSpace(lines[1]))
-	require.Contains(t, lines[6], "other")
-	require.Contains(t, lines[7], "plain")
-	require.Contains(t, lines[8], "? unavailable")
-	require.Contains(t, lines[9], "path unavailable")
-	require.Contains(t, lines[10], "› ● working")
-	require.Contains(t, lines[10], "work > Review payments")
+	require.Empty(t, strings.TrimSpace(lines[7]))
+	require.Contains(t, lines[8], "other")
+	require.Contains(t, lines[9], "plain")
+	require.Contains(t, lines[10], "? unavailable")
+	require.Contains(t, lines[10], "path unavailable")
+	require.Contains(t, lines[11], "› ● working")
+	require.Contains(t, lines[11], "work > Review payments")
 	require.Contains(t, lines[11], "/conversation/project")
 	require.Empty(t, strings.TrimSpace(lines[12]))
 	require.Contains(t, lines[13], "Search conversations")
@@ -240,27 +263,27 @@ func TestTreeBottomSearchAnchorsBestMatch(t *testing.T) {
 	require.Equal(t, TreeTmuxSelection{Target: tmux.PaneTarget{Session: "$1", Window: "@1", Pane: "%2"}}, selection)
 }
 
-func TestTreeBottomSearchReversesBlocksNotLines(t *testing.T) {
+func TestTreeBottomSearchKeepsInlineRowsInRankOrder(t *testing.T) {
 	m := NewTreeModel(nil, "")
 	m = updateTree(t, m, tea.WindowSizeMsg{Width: 120, Height: 10})
 	m.accept(treeFixture())
 	raw := strings.Split(m.View().Content, "\n")
 	lines := strings.Split(ansi.Strip(m.View().Content), "\n")
-	require.Contains(t, lines[1], "other")
-	require.Contains(t, lines[2], "plain")
-	require.Contains(t, lines[3], "work > OpenCode (title unavailable)")
-	require.Contains(t, lines[4], "path unavailable")
-	require.Contains(t, lines[5], "work > Review payments")
+	require.Contains(t, lines[3], "other")
+	require.Contains(t, lines[4], "plain")
+	require.Contains(t, lines[5], "work > OpenCode (title unavailable)")
+	require.Contains(t, lines[5], "path unavailable")
+	require.Contains(t, lines[6], "work > Review payments")
 	require.Contains(t, lines[6], "/conversation/project")
-	for _, index := range []int{5, 6} {
+	for _, index := range []int{6} {
 		require.Contains(t, raw[index], "\x1b[")
 		require.Equal(t, 120, ansi.StringWidth(raw[index]))
 	}
 	m.cursor = 1
 	lines = strings.Split(ansi.Strip(m.View().Content), "\n")
-	require.Contains(t, lines[3], "work > OpenCode (title unavailable)")
-	require.Contains(t, lines[4], "path unavailable")
-	require.Contains(t, lines[5], "work > Review payments")
+	require.Contains(t, lines[5], "work > OpenCode (title unavailable)")
+	require.Contains(t, lines[5], "path unavailable")
+	require.Contains(t, lines[6], "work > Review payments")
 	require.Contains(t, lines[6], "/conversation/project")
 }
 
@@ -303,8 +326,8 @@ func TestTreeBottomSearchScrollAndResize(t *testing.T) {
 			lines := strings.Split(ansi.Strip(m.View().Content), "\n")
 			require.Len(t, lines, height)
 			require.Contains(t, strings.Join(lines[1:height-3], "\n"), "›")
-			if index < 2 && height >= 6 {
-				path := "/conversation/project"
+			if index < 2 {
+				path := "/conversation/"
 				if index == 1 {
 					path = "path unavailable"
 				}
@@ -392,18 +415,15 @@ func TestTreeAgentPathRightAlignedWithInset(t *testing.T) {
 		{"home abbreviation", "/home/amy/project", "/home/amy", "~/project", 80},
 		{"unicode", "/项目", "", "/项目", 40},
 		{"unavailable", "", "", "path unavailable", 60},
-		{"truncated", "/a/very/long/directory", "", "/a/very…", 10},
-		{"one column", "/project", "", "", 1},
-		{"zero columns", "/project", "", "", 0},
+		{"truncated", "/a/very/long/directory", "", "/a/very/l…", 40},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, selected := range []bool{false, true} {
 				row := treeRow{label: "session > title", agent: &agentRow{status: agentstatus.Idle{}, directory: tc.directory}}
 				lines := renderTreeRow(row, tc.width, tc.home, selected)
-				require.Len(t, lines, 2)
-				path := ansi.Strip(lines[1])
+				require.Len(t, lines, 1)
+				path := ansi.Strip(lines[0])
 				require.Equal(t, tc.width, ansi.StringWidth(path))
-				require.Equal(t, tc.want, strings.TrimSpace(path))
 				if tc.width > 0 {
 					require.True(t, strings.HasSuffix(path, tc.want+" "), path)
 				}
@@ -430,7 +450,7 @@ func TestTreeLayoutFitsTinyTerminals(t *testing.T) {
 	}
 }
 
-func TestTreeNarrowViewMovesPathBelowTitleAndScrollsSelection(t *testing.T) {
+func TestTreeNarrowViewKeepsPathInlineAndScrollsSelection(t *testing.T) {
 	m := NewTreeModel(nil, "")
 	m.width, m.height = 60, 6
 	m.accept(treeFixture())

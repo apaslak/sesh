@@ -43,8 +43,8 @@ func agentDisplayPath(directory, home string) string {
 	return directory
 }
 
-// renderTreeRow groups each agent's title and path into two lines, applying the
-// same selection background to every segment so nested colors cannot erase it.
+// renderTreeRow keeps status, title, and a muted right-aligned path on one line.
+// Every segment shares the selection background, including padding and path.
 func renderTreeRow(row treeRow, width int, home string, selected bool) []string {
 	width = max(0, width)
 	segment := func(text string, foreground color.Color) string {
@@ -68,10 +68,20 @@ func renderTreeRow(row treeRow, width int, home string, selected bool) []string 
 	}
 	indicator, statusColor := agentIndicator(row.agent.status)
 	badge := indicator + strings.Repeat(" ", max(0, 13-ansi.StringWidth(indicator)))
-	first := prefix + segment(badge+"  ", statusColor) + segment(row.label, lipgloss.Color("#cad3f5"))
-	path := ansi.Truncate(agentDisplayPath(row.agent.directory, home), max(0, width-2), "…")
+	prefix += segment(badge+"  ", statusColor)
 	rightInset := min(1, width)
-	padding := strings.Repeat(" ", max(0, width-ansi.StringWidth(path)-rightInset))
-	second := segment(padding+path+strings.Repeat(" ", rightInset), lipgloss.Color("#a5adcb"))
-	return []string{finish(first), finish(second)}
+	room := max(0, width-ansi.StringWidth(prefix)-rightInset)
+	// Split tight space between title/path; a short title lends its unused
+	// budget to the path, and a short path leaves more room for the title.
+	reservedTitle := min(ansi.StringWidth(row.label), max(1, (room-2)/2))
+	path := ansi.Truncate(agentDisplayPath(row.agent.directory, home), max(0, room-2-reservedTitle), "…")
+	gap := 0
+	if path != "" {
+		gap = 2
+	}
+	title := ansi.Truncate(row.label, max(0, room-ansi.StringWidth(path)-gap), "…")
+	line := prefix + segment(title, lipgloss.Color("#cad3f5"))
+	padding := strings.Repeat(" ", max(0, width-ansi.StringWidth(line)-ansi.StringWidth(path)-rightInset))
+	line += segment(padding+path+strings.Repeat(" ", rightInset), lipgloss.Color("#a5adcb"))
+	return []string{finish(line)}
 }
