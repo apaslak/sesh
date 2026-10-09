@@ -66,7 +66,7 @@ export default Plugin.define({
           tmux(socket, ["list-clients", "-F", "#{pane_id}\t#{client_flags}"]),
           pickerOpen(directory, server, Date.now()),
         ])
-        return { title: info.title ?? conversation, agent: info.agent ?? "", running: active[conversation] !== undefined, outcome: info.outcome, idle: info.time.idle, visible: terminalFocused !== false && visibleClient(clients, paneID, popup), attention: permission ? "permission" : question ? "question" : undefined }
+        return { title: info.title ?? conversation, agent: info.agent ?? "", directory: info.location.directory, running: active[conversation] !== undefined, outcome: info.outcome, idle: info.time.idle, visible: terminalFocused !== false && visibleClient(clients, paneID, popup), attention: permission ? "permission" : question ? "question" : undefined }
       }, { signal: lifetime.signal })
       if (!observation) return
       let state = states.get(conversation) ?? initialState()
@@ -79,7 +79,7 @@ export default Plugin.define({
         await save(draft => { draft.acknowledged[conversation] = published.execution })
       }
       const final = context.ui.router.current()
-      if (!closed && final.type === "session" && final.sessionID === conversation) await writeSnapshot(path, { version: 1, server, pane: paneID, owner, conversation, title: observation.title, agent: observation.agent, heartbeat: Date.now(), status: published })
+      if (!closed && final.type === "session" && final.sessionID === conversation) await writeSnapshot(path, { version: 1, server, pane: paneID, owner, conversation, title: observation.title, agent: observation.agent, directory: observation.directory, heartbeat: Date.now(), status: published })
     }
 
     function schedule(): void {

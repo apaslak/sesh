@@ -1,10 +1,12 @@
 package picker
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/joshmedeski/sesh/v2/agentstatus"
 	"github.com/joshmedeski/sesh/v2/model"
 	"github.com/joshmedeski/sesh/v2/tmux"
@@ -12,189 +14,254 @@ import (
 )
 
 func treeFixture() TreeData {
-	return TreeData{Topology: tmux.TreeSnapshot{Server: "s", Sessions: []tmux.TreeSession{{ID: "$1", Name: "work", Windows: []tmux.TreeWindow{{ID: "@1", Index: 0, Name: "main", Panes: []tmux.TreePane{{ID: "%1", Command: "zsh", Path: "/work"}, {ID: "%2", Index: 1, Command: "opencode", Path: "/work"}}}}}}}, Statuses: map[string]agentstatus.Snapshot{"%2": {Title: "Review payments", Agent: "build", Status: agentstatus.Finished{Execution: "1"}}}}
+	return TreeData{Topology: tmux.TreeSnapshot{Server: "s", Sessions: []tmux.TreeSession{
+		{ID: "$1", Name: "work", Windows: []tmux.TreeWindow{{ID: "@1", Name: "main", Panes: []tmux.TreePane{
+			{ID: "%1", Command: "zsh", Path: "/pane/shell"},
+			{ID: "%2", Command: "bun", Path: "/pane/not-conversation"},
+			{ID: "%3", Command: "opencode", Path: "/pane/unknown"},
+		}}}},
+		{ID: "$2", Name: "plain", Windows: []tmux.TreeWindow{{ID: "@2", Name: "hidden-editor", Panes: []tmux.TreePane{{ID: "%4", Command: "vim", Path: "/opencode-notes", Title: "opencode"}}}}},
+		{ID: "$3", Name: "other"},
+	}}, Statuses: map[string]agentstatus.Snapshot{"%2": {Conversation: "ses_1", Title: "Review payments", Directory: "/conversation/project", Status: agentstatus.Working{Execution: "1"}}}}
 }
 
-func TestTreeFilteringKeepsAncestors(t *testing.T) {
-	rows := buildTreeRows(treeFixture())
-	require.Len(t, rows, 4)
-	filtered := filterTreeRows(rows, "payments", nil)
-	require.Len(t, filtered, 3)
-	require.Equal(t, "$1", filtered[0].key)
-	require.Equal(t, "$1/@1", filtered[1].key)
-	require.Equal(t, "$1/@1/%2", filtered[2].key)
-	require.Len(t, filterTreeRows(rows, "work", nil), 4)
-	require.Len(t, filterTreeRows(rows, "", map[string]bool{"$1": true}), 1)
-	require.Len(t, filterTreeRows(rows, "payments", map[string]bool{"$1": true}), 3)
+func updateTree(t *testing.T, m TreeModel, msg tea.Msg) TreeModel {
+	t.Helper()
+	result, _ := m.Update(msg)
+	switch next := result.(type) {
+	case TreeModel:
+		return next
+	default:
+		t.Fatal("wrong model")
+		return m
+	}
 }
 
-func TestTreeRefreshPreservesSelection(t *testing.T) {
+func TestTreeDefaultShowsOnlyFlatAgents(t *testing.T) {
 	m := NewTreeModel(nil, "")
 	m.accept(treeFixture())
-	m.cursor = 3
-	m.accept(treeFixture())
-	require.Equal(t, "$1/@1/%2", m.rows[m.cursor].key)
-	data := treeFixture()
-	data.Topology.Sessions[0].Windows[0].Panes = data.Topology.Sessions[0].Windows[0].Panes[:1]
-	// Keep another conversation in this session, so its window remains visible.
-	data.Statuses["%1"] = agentstatus.Snapshot{Title: "Remaining agent", Status: agentstatus.Idle{}}
-	m.accept(data)
-	require.Equal(t, "$1/@1", m.rows[m.cursor].key)
+	require.Len(t, m.rows, 2)
+	require.Equal(t, "$1/@1/%2", m.rows[0].key)
+	require.Equal(t, "$1/@1/%3", m.rows[1].key)
+	view := ansi.Strip(m.View().Content)
+	require.Contains(t, view, "Agents")
+	require.Contains(t, view, "work > Review payments")
+	require.Contains(t, view, "● working")
+	require.Contains(t, view, "/conversation/project")
+	require.Contains(t, view, "? unavailable")
+	require.NotContains(t, view, "/pane/not-conversation")
+	require.NotContains(t, view, "/pane/unknown")
+	require.NotContains(t, view, "hidden-editor")
+	require.NotContains(t, view, "▾")
+	require.NotContains(t, view, "preview")
 }
 
-func TestTreeSourceShortcutsAndTypedSelection(t *testing.T) {
+func TestTreeToggleShowsOnlySessionsWithoutAgents(t *testing.T) {
+	m := NewTreeModel(nil, "")
+	m.accept(treeFixture())
+	m = updateTree(t, m, tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
+	require.Len(t, m.rows, 2)
+	require.Equal(t, "plain", m.rows[0].label)
+	require.Equal(t, "other", m.rows[1].label)
+	view := ansi.Strip(m.View().Content)
+	require.Contains(t, view, "Sessions")
+	require.NotContains(t, view, "work")
+	require.NotContains(t, view, "hidden-editor")
+	require.NotContains(t, view, "working")
+
+	m = updateTree(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	selection, picked := m.Chosen()
+	require.True(t, picked)
+	require.Equal(t, TreeTmuxSelection{Target: tmux.SessionTarget{Session: "$2"}}, selection)
+}
+
+func TestTreeToggleRemembersEachViewsSearchAndSelection(t *testing.T) {
+	m := NewTreeModel(nil, "work")
+	m.accept(treeFixture())
+	m.cursor = 1
+	m = updateTree(t, m, tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
+	require.Equal(t, "", m.input.Value())
+	require.Len(t, m.rows, 2)
+	m.input.SetValue("plain")
+	m.filter("")
+	m = updateTree(t, m, tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
+	require.Equal(t, "work", m.input.Value())
+	require.Equal(t, "$1/@1/%3", m.rows[m.cursor].key)
+	m = updateTree(t, m, tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
+	require.Equal(t, "plain", m.input.Value())
+	require.Equal(t, "$2", m.rows[m.cursor].key)
+}
+
+func TestTreeAgentSearchMatchesSessionConversationAndDirectory(t *testing.T) {
+	for _, query := range []string{"payments", "conversation/project"} {
+		m := NewTreeModel(nil, query)
+		m.accept(treeFixture())
+		require.Len(t, m.rows, 1)
+		require.Equal(t, "$1/@1/%2", m.rows[0].key)
+	}
+	m := NewTreeModel(nil, "work")
+	m.accept(treeFixture())
+	require.Len(t, m.rows, 2)
+	m = updateTree(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	selection, picked := m.Chosen()
+	require.True(t, picked)
+	require.Equal(t, TreeTmuxSelection{Target: tmux.PaneTarget{Session: "$1", Window: "@1", Pane: "%2"}}, selection)
+}
+
+func TestTreeAgentStatusIndicatorsAreDistinctWithoutColor(t *testing.T) {
 	for _, tc := range []struct {
-		key    rune
-		source TreeSource
-	}{{'a', TreeAll}, {'t', TreeTmux}, {'g', TreeConfig}, {'x', TreeZoxide}, {'f', TreeFind}} {
-		m := NewTreeModel(nil, "")
-		result, _ := m.Update(tea.KeyPressMsg{Code: tc.key, Mod: tea.ModCtrl})
-		switch next := result.(type) {
-		case TreeModel:
-			require.Equal(t, tc.source, next.source)
-		default:
-			t.Fatal("wrong model")
-		}
-	}
-	m := NewTreeModel(nil, "")
-	m.accept(treeFixture())
-	m.cursor = 3
-	result, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	switch next := result.(type) {
-	case TreeModel:
-		selection, picked := next.Chosen()
-		require.True(t, picked)
-		switch selected := selection.(type) {
-		case TreeTmuxSelection:
-			require.Equal(t, tmux.PaneTarget{Session: "$1", Window: "@1", Pane: "%2"}, selected.Target)
-		default:
-			t.Fatal("wrong selection")
-		}
-	default:
-		t.Fatal("wrong model")
+		status agentstatus.Status
+		want   string
+	}{
+		{agentstatus.Idle{}, "○ idle"},
+		{agentstatus.Working{Execution: "1"}, "● working"},
+		{agentstatus.Attention{Reason: "permission"}, "! attention"},
+		{agentstatus.Finished{Execution: "1"}, "◆ unread"},
+		{agentstatus.Finished{Execution: "1", Read: true}, "✓ read"},
+	} {
+		data := treeFixture()
+		data.Statuses["%2"] = agentstatus.Snapshot{Title: "Review", Directory: "/conversation", Status: tc.status}
+		m := NewTreeModel(nil, "Review")
+		m.accept(data)
+		require.Contains(t, ansi.Strip(m.View().Content), tc.want)
 	}
 }
 
-func TestTreeIgnoresStaleSourceLoads(t *testing.T) {
+func TestTreeLegacySnapshotDoesNotMislabelPanePathAsConversationPath(t *testing.T) {
+	data := treeFixture()
+	data.Statuses["%2"] = agentstatus.Snapshot{Title: "Review", Status: agentstatus.Idle{}}
+	m := NewTreeModel(nil, "Review")
+	m.accept(data)
+	view := ansi.Strip(m.View().Content)
+	require.Contains(t, view, "path unavailable")
+	require.NotContains(t, view, "/pane/not-conversation")
+}
+
+func TestTreeWideViewKeepsPathWhenTitleIsLong(t *testing.T) {
+	data := treeFixture()
+	data.Statuses["%2"] = agentstatus.Snapshot{Title: strings.Repeat("long title ", 30), Directory: "/conversation/project", Status: agentstatus.Working{Execution: "1"}}
+	m := NewTreeModel(nil, "long")
+	m.width = 120
+	m.accept(data)
+	view := ansi.Strip(m.View().Content)
+	require.Contains(t, view, "● working")
+	require.Contains(t, view, "/conversation/project")
+	for _, line := range strings.Split(view, "\n") {
+		require.LessOrEqual(t, ansi.StringWidth(line), 120)
+	}
+}
+
+func TestTreeNarrowViewMovesPathBelowTitleAndScrollsSelection(t *testing.T) {
 	m := NewTreeModel(nil, "")
-	m.generation = 2
-	result, _ := m.Update(treeLoaded{generation: 1, data: treeFixture()})
-	switch next := result.(type) {
-	case TreeModel:
-		require.Empty(t, next.rows)
-	default:
-		t.Fatal("wrong model")
+	m.width, m.height = 60, 6
+	m.accept(treeFixture())
+	m = updateTree(t, m, tea.KeyPressMsg{Code: tea.KeyTab})
+	view := ansi.Strip(m.View().Content)
+	require.Contains(t, view, "? unavailable")
+	require.Contains(t, view, "path unavailable")
+	require.Equal(t, "$1/@1/%3", m.rows[m.cursor].key)
+	lines := strings.Split(view, "\n")
+	require.LessOrEqual(t, len(lines), 6)
+	for _, line := range lines {
+		require.LessOrEqual(t, ansi.StringWidth(line), 60)
 	}
 }
 
 func TestTreeRenderSanitizesLabels(t *testing.T) {
 	data := treeFixture()
-	data.Statuses["%2"] = agentstatus.Snapshot{Title: "bad\x1b[2J\nlabel", Status: agentstatus.Idle{}}
-	m := NewTreeModel(nil, "")
+	data.Statuses["%2"] = agentstatus.Snapshot{Title: "bad\x1b[2J\nlabel", Directory: "/path\x1b[2J", Status: agentstatus.Idle{}}
+	m := NewTreeModel(nil, "bad")
 	m.accept(data)
 	view := m.View().Content
 	require.NotContains(t, view, "\x1b[2J")
 	require.Contains(t, view, "bad label")
-	require.NotContains(t, view, "preview")
 }
 
-func TestTreeFlatSourcesDoNotInventParentsFromPaths(t *testing.T) {
-	data := TreeData{Entries: model.SeshSessions{Directory: model.SeshSessionMap{
-		"/home":       {Src: "find", Name: "/home"},
-		"/home/child": {Src: "find", Name: "/home/child"},
-	}, OrderedIndex: []string{"/home", "/home/child"}}}
-	filtered := filterTreeRows(buildTreeRows(data), "child", nil)
-	require.Len(t, filtered, 1)
-	require.Equal(t, "entry:find:/home/child", filtered[0].key)
-}
-
-func TestTreeLongTitlesDoNotHideAgentStatus(t *testing.T) {
-	data := treeFixture()
-	data.Statuses["%2"] = agentstatus.Snapshot{Title: strings.Repeat("long title ", 30), Agent: "build", Status: agentstatus.Working{Execution: "1"}}
-	m := NewTreeModel(nil, "")
-	m.width = 60
-	m.accept(data)
-	require.Contains(t, m.View().Content, "[working]")
-}
-
-func TestTreeSessionsWithoutOpenCodeStaySessionOnly(t *testing.T) {
-	data := TreeData{Topology: tmux.TreeSnapshot{Sessions: []tmux.TreeSession{
-		{ID: "$2", Name: "plain", Windows: []tmux.TreeWindow{
-			{ID: "@2", Name: "hidden-editor", Panes: []tmux.TreePane{{ID: "%3", Command: "vim", Path: "/opencode-notes"}}},
-			{ID: "@3", Name: "hidden-shell", Panes: []tmux.TreePane{{ID: "%4", Command: "zsh", Title: "opencode"}}},
-		}},
-	}}}
-	m := NewTreeModel(nil, "")
-	m.accept(data)
-	require.Len(t, m.rows, 1)
-	require.Equal(t, "plain", m.rows[0].label)
-	require.False(t, m.rows[0].branch)
-	require.NotContains(t, m.View().Content, "▾")
-	require.NotContains(t, m.View().Content, "▸")
-	require.NotContains(t, m.View().Content, "hidden-editor")
-	require.Empty(t, filterTreeRows(m.all, "hidden-editor", nil))
-	require.Empty(t, filterTreeRows(m.all, "vim", nil))
-	require.Len(t, filterTreeRows(m.all, "plain", nil), 1)
-
-	result, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	switch next := result.(type) {
-	case TreeModel:
-		selection, picked := next.Chosen()
-		require.True(t, picked)
-		require.Equal(t, TreeTmuxSelection{Target: tmux.SessionTarget{Session: "$2"}}, selection)
-	default:
-		t.Fatal("wrong model")
-	}
-}
-
-func TestTreeKeepsHierarchyForOpenCodeDetection(t *testing.T) {
-	for _, tc := range []struct {
-		name, command string
-		statuses      map[string]agentstatus.Snapshot
-	}{
-		{name: "command without plugin", command: "opencode"},
-		{name: "command case", command: "OpenCode"},
-		{name: "plugin with generic command", command: "bun", statuses: map[string]agentstatus.Snapshot{"%2": {Title: "Conversation", Status: agentstatus.Idle{}}}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			data := treeFixture()
-			data.Topology.Sessions[0].Windows[0].Panes[1].Command = tc.command
-			data.Statuses = tc.statuses
-			data.Topology.Sessions = append(data.Topology.Sessions, tmux.TreeSession{ID: "$2", Name: "plain", Windows: []tmux.TreeWindow{{ID: "@2", Panes: []tmux.TreePane{{ID: "%3", Command: "zsh"}}}}})
-			rows := buildTreeRows(data)
-			require.Len(t, rows, 5)
-			require.True(t, rows[0].branch)
-			require.Equal(t, "$1/@1/%1", rows[2].key)
-			require.Equal(t, "$1/@1/%2", rows[3].key)
-			require.Equal(t, "$2", rows[4].key)
-			require.False(t, rows[4].branch)
-		})
-	}
-}
-
-func TestTreeIgnoresUnusableOrUnrelatedOpenCodeSnapshots(t *testing.T) {
-	data := treeFixture()
-	data.Topology.Sessions[0].Windows[0].Panes[1].Command = "bun"
-	data.Statuses = map[string]agentstatus.Snapshot{"%2": {Title: "Unusable"}, "%99": {Title: "Other pane", Status: agentstatus.Idle{}}}
-	require.Len(t, buildTreeRows(data), 1)
-}
-
-func TestTreeRefreshAddsAndRemovesOpenCodeHierarchy(t *testing.T) {
-	data := treeFixture()
-	data.Topology.Sessions[0].Windows[0].Panes[1].Command = "zsh"
-	data.Statuses = nil
+func TestTreeRefreshPreservesSelectionAndQuery(t *testing.T) {
 	m := NewTreeModel(nil, "work")
-	m.accept(data)
-	require.Len(t, m.rows, 1)
-
 	m.accept(treeFixture())
-	require.Len(t, m.rows, 4)
-	require.Equal(t, "work", m.input.Value())
-	require.Equal(t, "$1", m.rows[m.cursor].key)
-	m.cursor = 3
+	m.cursor = 1
+	m.accept(treeFixture())
+	require.Equal(t, "$1/@1/%3", m.rows[m.cursor].key)
+	data := treeFixture()
+	data.Topology.Sessions[0].Windows[0].Panes = data.Topology.Sessions[0].Windows[0].Panes[:2]
 	m.accept(data)
 	require.Len(t, m.rows, 1)
-	require.Equal(t, "$1", m.rows[m.cursor].key)
+	require.Equal(t, "$1/@1/%2", m.rows[m.cursor].key)
 	require.Equal(t, "work", m.input.Value())
-	require.False(t, m.rows[0].branch)
+}
+
+func TestTreeRefreshMovesSessionsBetweenViews(t *testing.T) {
+	m := NewTreeModel(nil, "")
+	m.accept(treeFixture())
+	data := treeFixture()
+	data.Statuses = nil
+	data.Topology.Sessions[0].Windows[0].Panes[2].Command = "zsh"
+	m.accept(data)
+	require.Empty(t, m.rows)
+	m = updateTree(t, m, tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
+	require.Len(t, m.rows, 3)
+	m.accept(treeFixture())
+	require.Len(t, m.rows, 2)
+}
+
+func TestTreeSourceShortcutsAndStaleLoads(t *testing.T) {
+	for _, tc := range []struct {
+		key    rune
+		source TreeSource
+	}{{'a', TreeAll}, {'t', TreeTmux}, {'g', TreeConfig}, {'x', TreeZoxide}, {'f', TreeFind}} {
+		m := NewTreeModel(nil, "")
+		m.accept(treeFixture())
+		m = updateTree(t, m, tea.KeyPressMsg{Code: tc.key, Mod: tea.ModCtrl})
+		require.Equal(t, tc.source, m.source)
+		m = updateTree(t, m, treeLoaded{generation: m.generation - 1, data: treeFixture()})
+		require.Empty(t, m.rows)
+	}
+}
+
+func TestTreeReturningFromSourceRestoresTmuxView(t *testing.T) {
+	m := NewTreeModel(nil, "work")
+	m.accept(treeFixture())
+	m.cursor = 1
+	m = updateTree(t, m, tea.KeyPressMsg{Code: 'g', Mod: tea.ModCtrl})
+	m.input.SetValue("config query")
+	m = updateTree(t, m, tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
+	m = updateTree(t, m, treeLoaded{generation: m.generation, data: treeFixture()})
+	require.Equal(t, "work", m.input.Value())
+	require.Equal(t, "$1/@1/%3", m.selectedKey())
+}
+
+func TestTreeToggleDuringLoadRetainsPendingSelection(t *testing.T) {
+	m := NewTreeModel(func(TreeSource) (TreeData, error) { return treeFixture(), nil }, "work")
+	m = updateTree(t, m, treeLoaded{data: treeFixture()})
+	m.cursor = 1
+	m = updateTree(t, m, tea.KeyPressMsg{Code: 'g', Mod: tea.ModCtrl})
+	m = updateTree(t, m, tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
+	m = updateTree(t, m, tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
+	m = updateTree(t, m, tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
+	m = updateTree(t, m, tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
+	m = updateTree(t, m, treeLoaded{generation: m.generation, data: treeFixture()})
+	require.Equal(t, "work", m.input.Value())
+	require.Equal(t, "$1/@1/%3", m.selectedKey())
+}
+
+func TestTreeRefreshFailureRetainsRowsAndRecovers(t *testing.T) {
+	m := NewTreeModel(nil, "payments")
+	m.accept(treeFixture())
+	m = updateTree(t, m, treeLoaded{data: TreeData{}, err: errors.New("disconnected")})
+	require.Len(t, m.rows, 1)
+	require.Equal(t, "payments", m.input.Value())
+	require.Contains(t, m.View().Content, "disconnected")
+	m = updateTree(t, m, treeLoaded{data: treeFixture()})
+	require.Nil(t, m.err)
+	require.Len(t, m.rows, 1)
+}
+
+func TestTreeAllSourceIncludesNormalEntriesWithoutInventingParents(t *testing.T) {
+	data := treeFixture()
+	data.Entries = model.SeshSessions{Directory: model.SeshSessionMap{"/home": {Src: "find", Name: "/home"}, "/home/child": {Src: "find", Name: "/home/child"}}, OrderedIndex: []string{"/home", "/home/child"}}
+	m := NewTreeModel(nil, "child")
+	m.accept(data)
+	require.Len(t, m.rows, 1)
+	require.Equal(t, "entry:find:/home/child", m.rows[0].key)
 }

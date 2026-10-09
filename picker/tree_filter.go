@@ -1,7 +1,6 @@
 package picker
 
 import (
-	"fmt"
 	"strings"
 	"unicode"
 
@@ -11,11 +10,17 @@ import (
 	"github.com/sahilm/fuzzy"
 )
 
+// agentRow contains conversation metadata; a nil status means unavailable,
+// never idle. A missing directory is not replaced with the pane's working path.
+type agentRow struct {
+	status    agentstatus.Status
+	directory string
+}
+
 type treeRow struct {
-	key, parent, label string
-	depth              int
-	branch             bool
-	selection          TreeSelection
+	key, label string
+	selection  TreeSelection
+	agent      *agentRow
 }
 
 func safeTreeText(text string) string {
@@ -27,25 +32,38 @@ func safeTreeText(text string) string {
 	}, ansi.Strip(text))
 }
 
-func buildTreeRows(data TreeData) []treeRow {
+func buildTreeRows(data TreeData, view tmuxView) []treeRow {
 	rows := []treeRow{}
 	for _, session := range data.Topology.Sessions {
-		hasOpenCode := sessionHasOpenCode(session, data.Statuses)
-		rows = append(rows, treeRow{key: session.ID, label: safeTreeText(session.Name), branch: hasOpenCode, selection: TreeTmuxSelection{Target: tmux.SessionTarget{Session: session.ID}}})
-		if !hasOpenCode {
+		if view == sessionsView {
+			if !sessionHasOpenCode(session, data.Statuses) {
+				rows = append(rows, treeRow{key: session.ID, label: safeTreeText(session.Name), selection: TreeTmuxSelection{Target: tmux.SessionTarget{Session: session.ID}}})
+			}
 			continue
 		}
 		for _, window := range session.Windows {
-			wk := session.ID + "/" + window.ID
-			rows = append(rows, treeRow{key: wk, parent: session.ID, depth: 1, label: fmt.Sprintf("%d: %s", window.Index, safeTreeText(window.Name)), branch: true, selection: TreeTmuxSelection{Target: tmux.WindowTarget{Session: session.ID, Window: window.ID}}})
 			for _, pane := range window.Panes {
-				label := fmt.Sprintf("%d: %s  %s", pane.Index, safeTreeText(pane.Command), safeTreeText(pane.Path))
-				if status, ok := data.Statuses[pane.ID]; ok && status.Status != nil {
-					label = fmt.Sprintf("%d: [%s] %s  %s  %s", pane.Index, safeTreeText(status.Status.Label()), safeTreeText(status.Agent), safeTreeText(status.Title), safeTreeText(pane.Path))
-				} else if strings.Contains(strings.ToLower(pane.Command), "opencode") {
-					label += "  [status unavailable]"
+				status := data.Statuses[pane.ID]
+				if !paneHasOpenCode(pane, status) {
+					continue
 				}
-				rows = append(rows, treeRow{key: wk + "/" + pane.ID, parent: wk, depth: 2, label: label, selection: TreeTmuxSelection{Target: tmux.PaneTarget{Session: session.ID, Window: window.ID, Pane: pane.ID}}})
+				title, directory := "OpenCode (title unavailable)", ""
+				if status.Status != nil {
+					title = status.Title
+					if title == "" {
+						title = status.Conversation
+					}
+					if title == "" {
+						title = "OpenCode (title unavailable)"
+					}
+					directory = status.Directory
+				}
+				rows = append(rows, treeRow{
+					key:       session.ID + "/" + window.ID + "/" + pane.ID,
+					label:     safeTreeText(session.Name) + " > " + safeTreeText(title),
+					selection: TreeTmuxSelection{Target: tmux.PaneTarget{Session: session.ID, Window: window.ID, Pane: pane.ID}},
+					agent:     &agentRow{status: status.Status, directory: safeTreeText(directory)},
+				})
 			}
 		}
 	}
@@ -59,12 +77,15 @@ func buildTreeRows(data TreeData) []treeRow {
 	return rows
 }
 
-// sessionHasOpenCode retains agent hierarchy even when plugin data is unavailable;
-// valid live metadata also identifies agents running under generic commands.
+// paneHasOpenCode uses the same detection for both mutually exclusive views.
+func paneHasOpenCode(pane tmux.TreePane, status agentstatus.Snapshot) bool {
+	return status.Status != nil || strings.Contains(strings.ToLower(pane.Command), "opencode")
+}
+
 func sessionHasOpenCode(session tmux.TreeSession, statuses map[string]agentstatus.Snapshot) bool {
 	for _, window := range session.Windows {
 		for _, pane := range window.Panes {
-			if statuses[pane.ID].Status != nil || strings.Contains(strings.ToLower(pane.Command), "opencode") {
+			if paneHasOpenCode(pane, statuses[pane.ID]) {
 				return true
 			}
 		}
@@ -72,39 +93,28 @@ func sessionHasOpenCode(session tmux.TreeSession, statuses map[string]agentstatu
 	return false
 }
 
-func filterTreeRows(rows []treeRow, query string, collapsed map[string]bool) []treeRow {
-	keep := make(map[string]bool)
-	if query != "" {
-		labels := make([]string, len(rows))
-		for i := range rows {
-			labels[i] = rows[i].label
-		}
-		for _, match := range fuzzy.Find(query, labels) {
-			row := rows[match.Index]
-			keep[row.key] = true
-			for _, candidate := range rows {
-				if (candidate.branch && strings.HasPrefix(row.key, candidate.key+"/")) || (row.branch && strings.HasPrefix(candidate.key, row.key+"/")) {
-					keep[candidate.key] = true
-				}
+func filterTreeRows(rows []treeRow, query string) []treeRow {
+	if query == "" {
+		return rows
+	}
+	labels := make([]string, len(rows))
+	for i, row := range rows {
+		labels[i] = row.label
+		if row.agent != nil {
+			indicator, _ := agentIndicator(row.agent.status)
+			labels[i] += " " + row.agent.directory + " " + indicator
+			if row.agent.status != nil {
+				labels[i] += " " + row.agent.status.Label()
 			}
 		}
 	}
+	keep := make([]bool, len(rows))
+	for _, match := range fuzzy.Find(query, labels) {
+		keep[match.Index] = true
+	}
 	filtered := []treeRow{}
-	for _, row := range rows {
-		if query != "" {
-			if keep[row.key] {
-				filtered = append(filtered, row)
-			}
-			continue
-		}
-		hidden := false
-		for key, value := range collapsed {
-			if value && strings.HasPrefix(row.key, key+"/") {
-				hidden = true
-				break
-			}
-		}
-		if !hidden {
+	for i, row := range rows {
+		if keep[i] {
 			filtered = append(filtered, row)
 		}
 	}

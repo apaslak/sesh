@@ -43,9 +43,9 @@ func (f Finished) Label() string {
 
 // Snapshot contains display metadata only, never prompts or conversation text.
 type Snapshot struct {
-	Conversation, Title, Agent string
-	Status                     Status
-	heartbeat                  int64
+	Conversation, Title, Agent, Directory string
+	Status                                Status
+	heartbeat                             int64
 }
 type Reader struct{ directory string }
 
@@ -115,6 +115,7 @@ func (r *Reader) readPath(path, server, pane string, now time.Time) (Snapshot, e
 		Conversation string `json:"conversation"`
 		Title        string `json:"title"`
 		Agent        string `json:"agent"`
+		Directory    string `json:"directory"`
 		Heartbeat    int64  `json:"heartbeat"`
 		Status       struct {
 			Kind      string `json:"kind"`
@@ -155,5 +156,5 @@ func (r *Reader) readPath(path, server, pane string, now time.Time) (Snapshot, e
 	default:
 		return Snapshot{}, fmt.Errorf("unknown status kind")
 	}
-	return Snapshot{Conversation: raw.Conversation, Title: raw.Title, Agent: raw.Agent, Status: status, heartbeat: raw.Heartbeat}, nil
+	return Snapshot{Conversation: raw.Conversation, Title: raw.Title, Agent: raw.Agent, Directory: raw.Directory, Status: status, heartbeat: raw.Heartbeat}, nil
 }

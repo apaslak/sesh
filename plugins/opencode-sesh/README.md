@@ -28,7 +28,10 @@ Restart each OpenCode terminal client. Do not install this as a server-only
 plugin: OpenCode's shared service does not own a tmux pane.
 
 The plugin observes the displayed conversation (no tab rows), execution outcome,
-and pending permissions/forms in its conversation family. It writes private,
+and pending permissions/forms in its conversation family. Metadata includes the
+conversation's `location.directory`, not the pane's working directory. Restart
+existing clients after updating the plugin to publish that optional field;
+older snapshots remain readable but display `path unavailable`. It writes private,
 atomic, versioned metadata under `$XDG_STATE_HOME/sesh/opencode` (default
 `~/.local/state/sesh/opencode`), refreshed every second. No prompts, messages,
 permission contents or errors are copied into records. Owner-specific files

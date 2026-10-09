@@ -5,7 +5,7 @@ import { homedir } from "node:os"
 import type { Status } from "./state"
 
 /** Wire protocol consumed by sesh's agentstatus package. */
-export type Snapshot = { version: 1; server: string; pane: string; owner: string; conversation: string; title: string; agent: string; heartbeat: number; status: Status }
+export type Snapshot = { version: 1; server: string; pane: string; owner: string; conversation: string; title: string; agent: string; directory?: string; heartbeat: number; status: Status }
 export function filename(server: string, pane: string): string {
   return createHash("sha256").update(server + "\x00" + pane).digest("hex") + ".json"
 }

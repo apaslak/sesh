@@ -2,12 +2,12 @@ package picker
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/joshmedeski/sesh/v2/agentstatus"
 	"github.com/joshmedeski/sesh/v2/model"
@@ -63,6 +63,26 @@ type treeLoaded struct {
 }
 type treeTick struct{}
 
+// tmuxView partitions live tmux entries into agent panes and agent-free sessions.
+type tmuxView uint8
+
+const (
+	agentsView tmuxView = iota
+	sessionsView
+)
+
+func (v tmuxView) String() string {
+	if v == sessionsView {
+		return "Sessions"
+	}
+	return "Agents"
+}
+
+type treeViewState struct {
+	query, key string
+	cursor     int
+}
+
 // TreeModel is opt-in; it deliberately does not inherit preview/deletion actions.
 type TreeModel struct {
 	fetch                 TreeFetchFunc
@@ -70,7 +90,11 @@ type TreeModel struct {
 	generation            uint64
 	input                 textinput.Model
 	all, rows             []treeRow
-	collapsed             map[string]bool
+	view                  tmuxView
+	views                 [2]treeViewState
+	data                  TreeData
+	pendingKey            string
+	home                  string
 	cursor, width, height int
 	loading               bool
 	err                   error
@@ -81,10 +105,11 @@ type TreeModel struct {
 func NewTreeModel(fetch TreeFetchFunc, query string) TreeModel {
 	input := textinput.New()
 	input.Prompt = "> "
-	input.Placeholder = "Filter sessions, windows, panes, conversations..."
+	input.Placeholder = "Filter conversations, sessions, paths..."
 	input.SetValue(query)
 	input.Focus()
-	return TreeModel{fetch: fetch, source: TreeTmux, input: input, collapsed: map[string]bool{}, width: 80, height: 24, loading: fetch != nil}
+	home, _ := os.UserHomeDir()
+	return TreeModel{fetch: fetch, source: TreeTmux, input: input, home: home, width: 80, height: 24, loading: fetch != nil}
 }
 
 func (m TreeModel) load() tea.Cmd {
@@ -109,26 +134,34 @@ func (m *TreeModel) selectedKey() string {
 	return ""
 }
 func (m *TreeModel) filter(key string) {
-	m.rows = filterTreeRows(m.all, m.input.Value(), m.collapsed)
-	for key != "" {
+	m.rows = filterTreeRows(m.all, m.input.Value())
+	if key != "" {
 		for i := range m.rows {
 			if m.rows[i].key == key {
 				m.cursor = i
 				return
 			}
 		}
-		at := strings.LastIndex(key, "/")
-		if at < 0 {
-			break
-		}
-		key = key[:at]
 	}
 	m.cursor = max(0, min(m.cursor, len(m.rows)-1))
 }
 func (m *TreeModel) accept(data TreeData) {
 	key := m.selectedKey()
-	m.all = buildTreeRows(data)
+	if key == "" {
+		key = m.pendingKey
+	}
+	m.pendingKey = ""
+	m.data = data
+	m.all = buildTreeRows(data, m.view)
 	m.filter(key)
+}
+
+func (m *TreeModel) saveView() {
+	if m.loading && len(m.rows) == 0 {
+		m.views[m.view].query = m.input.Value()
+		return
+	}
+	m.views[m.view] = treeViewState{query: m.input.Value(), key: m.selectedKey(), cursor: m.cursor}
 }
 func (m TreeModel) Chosen() (TreeSelection, bool) { return m.chosen, m.chosen != nil && !m.quit }
 
@@ -172,35 +205,54 @@ func (m TreeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "shift+tab", "up", "ctrl+p":
 			m.cursor = max(0, m.cursor-1)
 			return m, nil
-		case "left", "right":
-			if len(m.rows) == 0 {
-				return m, nil
+		case "ctrl+o":
+			if m.source == TreeTmux {
+				m.saveView()
 			}
-			row := m.rows[m.cursor]
-			if key == "right" {
-				if row.branch {
-					delete(m.collapsed, row.key)
-				}
-			} else if row.branch && !m.collapsed[row.key] {
-				m.collapsed[row.key] = true
+			if m.view == agentsView {
+				m.view = sessionsView
 			} else {
-				for i := range m.rows {
-					if m.rows[i].key == row.parent {
-						m.cursor = i
-						break
-					}
-				}
+				m.view = agentsView
 			}
-			m.filter(m.selectedKey())
+			state := m.views[m.view]
+			m.pendingKey = state.key
+			m.input.SetValue(state.query)
+			m.cursor = state.cursor
+			if m.source != TreeTmux {
+				m.source = TreeTmux
+				m.generation++
+				m.loading = m.fetch != nil
+				m.data = TreeData{}
+				m.all = nil
+				m.rows = nil
+				m.err = nil
+				return m, m.load()
+			}
+			m.all = buildTreeRows(m.data, m.view)
+			m.filter(state.key)
+			if !m.loading {
+				m.pendingKey = ""
+			}
 			return m, nil
 		case "ctrl+a", "ctrl+t", "ctrl+g", "ctrl+x", "ctrl+f":
+			if m.source == TreeTmux {
+				m.saveView()
+			}
 			sources := map[string]TreeSource{"ctrl+a": TreeAll, "ctrl+t": TreeTmux, "ctrl+g": TreeConfig, "ctrl+x": TreeZoxide, "ctrl+f": TreeFind}
 			m.source = sources[key]
 			m.generation++
 			m.loading = m.fetch != nil
 			m.all = nil
 			m.rows = nil
+			m.data = TreeData{}
 			m.cursor = 0
+			m.pendingKey = ""
+			if m.source == TreeTmux {
+				state := m.views[m.view]
+				m.input.SetValue(state.query)
+				m.cursor = state.cursor
+				m.pendingKey = state.key
+			}
 			m.err = nil
 			return m, m.load()
 		case "ctrl+d":
@@ -218,33 +270,52 @@ func (m TreeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m TreeModel) View() tea.View {
-	lines := []string{"sesh · " + m.source.String(), m.input.View()}
+	header := m.view.String()
+	if m.source != TreeTmux {
+		header += " · " + m.source.String()
+	}
+	lines := []string{ansi.Truncate("sesh · "+header, max(0, m.width), "…"), ansi.Truncate(m.input.View(), max(0, m.width), "…")}
 	available := max(0, m.height-4)
-	start := max(0, m.cursor-available+1)
-	for i := start; i < min(len(m.rows), start+available); i++ {
-		row := m.rows[i]
-		branch := "  "
-		if row.branch {
-			branch = "▾ "
-			if m.collapsed[row.key] && m.input.Value() == "" {
-				branch = "▸ "
-			}
+	start, used := min(m.cursor, max(0, len(m.rows)-1)), 0
+	if len(m.rows) > 0 {
+		used = len(renderTreeRow(m.rows[start], m.width, m.home, true))
+	}
+	for start > 0 {
+		height := len(renderTreeRow(m.rows[start-1], m.width, m.home, false))
+		if used+height > available {
+			break
 		}
-		line := "  " + strings.Repeat("  ", row.depth) + branch + row.label
-		line = ansi.Truncate(line, max(0, m.width), "…")
-		if i == m.cursor {
-			line = lipgloss.NewStyle().Reverse(true).Render(line)
+		start--
+		used += height
+	}
+	used = 0
+	for i := start; i < len(m.rows) && used < available; i++ {
+		rowLines := renderTreeRow(m.rows[i], m.width, m.home, i == m.cursor)
+		if used+len(rowLines) > available {
+			rowLines = rowLines[:available-used]
 		}
-		lines = append(lines, line)
+		lines = append(lines, rowLines...)
+		used += len(rowLines)
 	}
 	if len(m.rows) == 0 && available > 0 {
 		if m.loading {
 			lines = append(lines, "Loading...")
 		} else {
-			lines = append(lines, "No matches")
+			message := "No matches"
+			if m.input.Value() == "" && m.source == TreeTmux {
+				message = "No OpenCode agents"
+				if m.view == sessionsView {
+					message = "No sessions without OpenCode"
+				}
+			}
+			lines = append(lines, ansi.Truncate(message, max(0, m.width), "…"))
 		}
 	}
-	footer := "^a all  ^t tmux  ^g configs  ^x zoxide  ^f find  ←/→ fold"
+	nextView := "sessions"
+	if m.view == sessionsView {
+		nextView = "agents"
+	}
+	footer := "^o " + nextView + "  ^a all  ^t tmux  ^g configs  ^x zoxide  ^f find"
 	if m.err != nil {
 		footer = "Refresh failed: " + safeTreeText(m.err.Error())
 	}

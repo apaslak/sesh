@@ -2,6 +2,7 @@
 export type Observation = {
   title: string
   agent: string
+  directory?: string
   running: boolean
   outcome?: "succeeded" | "failed" | "interrupted"
   idle?: number

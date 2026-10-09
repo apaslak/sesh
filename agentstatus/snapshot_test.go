@@ -13,11 +13,12 @@ func TestSnapshotRoundTrip(t *testing.T) {
 	now := time.UnixMilli(10000)
 	dir := t.TempDir()
 	path := filepath.Join(dir, Filename("/socket:42", "%1"))
-	data := `{"version":1,"server":"/socket:42","pane":"%1","owner":"process-1","conversation":"ses_1","title":"Review","agent":"build","heartbeat":10000,"status":{"kind":"finished","execution":"exec_1","read":false}}`
+	data := `{"version":1,"server":"/socket:42","pane":"%1","owner":"process-1","conversation":"ses_1","title":"Review","agent":"build","directory":"/conversation/project","heartbeat":10000,"status":{"kind":"finished","execution":"exec_1","read":false}}`
 	require.NoError(t, os.WriteFile(path, []byte(data), 0600))
 	snapshot, err := NewReader(dir).Read("/socket:42", "%1", now)
 	require.NoError(t, err)
 	require.Equal(t, "Review", snapshot.Title)
+	require.Equal(t, "/conversation/project", snapshot.Directory)
 	require.Equal(t, "finished · unread", snapshot.Status.Label())
 	_, err = NewReader(dir).Read("/socket:42", "%1", now.Add(5*time.Second+time.Millisecond))
 	require.Error(t, err)

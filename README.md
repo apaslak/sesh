@@ -554,34 +554,39 @@ Sesh has a built-in picker that can be used as a tmux popup:
 bind-key "K" display-popup -h 90% -w 50% -E "sesh picker -i"
 ```
 
-##### Live tmux tree with OpenCode V2 status
+##### Agent-focused tmux picker with OpenCode V2 status
 
-Opt into a session picker with no preview. Sessions containing OpenCode show a
-fully expanded session → window → pane tree; other sessions show only their name:
+Opt into an agent-focused picker with no preview (the flag remains `--tree`):
 
 ```tmux
 set -g focus-events on
 bind-key "t" display-popup -w 80% -h 70% -E "sesh picker --tree"
 ```
 
-Enter focuses the selected session/window's active pane, or the exact selected
-pane. OpenCode detection uses fresh plugin data or the pane's command, so missing
-status does not hide agent hierarchies. The hierarchy appears/disappears on live
-refresh as OpenCode starts/stops. Session-only rows do not expand or expose hidden
-windows/panes through search.
+The default **Agents** view shows one row per OpenCode pane: colored symbol +
+status word, `tmux session > conversation`, and the conversation directory.
+Wide popups use aligned columns; narrow popups put the path on a second line.
+Paths under your home directory use `~`.
 
-Tab/Shift-Tab navigate; Left/Right collapse/expand. Fuzzy search retains
-parent context. The tree refreshes every second without resetting search or
-selection, including attached/current sessions.
+**Ctrl-O** toggles to **Sessions**: only tmux sessions without OpenCode, names
+only. Each view remembers its search and selection. Enter focuses the exact agent
+pane or the selected session's active pane. Tab/Shift-Tab navigate; Left/Right
+edit the search text rather than folding a hierarchy.
 
-Ctrl-A shows all sources; Ctrl-T returns to the tmux tree; Ctrl-G shows configs;
+Fuzzy search matches session names, conversation titles, status, and conversation
+directories. Live refresh retains query/selection as agents start or stop.
+Detection uses fresh usable plugin metadata or an OpenCode pane command;
+title/path mentions alone do not identify agents.
+
+Ctrl-A shows all sources; Ctrl-T returns to the current tmux view; Ctrl-G shows configs;
 Ctrl-X shows zoxide; Ctrl-F searches directories (`fd` required). This mode has
 no deletion shortcut. Other picker modes are unchanged.
 
 Install the [OpenCode V2 CLI bridge](plugins/opencode-sesh/README.md) to show
-conversation titles, agents, working/idle/attention and finished read/unread
-states on pane rows. Without fresh plugin data, OpenCode panes show **status
-unavailable**; normal tmux navigation still works. Installation and replacing
+conversation titles/directories and working/idle/attention and finished read/unread
+states. Without fresh plugin data, command-recognized OpenCode panes remain listed
+as **unavailable**. Missing directories show **path unavailable**, never the pane's
+working directory pretending to be a conversation path. Installation and replacing
 your binding are explicit setup steps, not automatic side effects of building.
 
 ## zsh keybind
