@@ -556,7 +556,8 @@ bind-key "K" display-popup -h 90% -w 50% -E "sesh picker -i"
 
 ##### Live tmux tree with OpenCode V2 status
 
-Opt into a fully expanded session → window → pane picker, with no preview:
+Opt into a session picker with no preview. Sessions containing OpenCode show a
+fully expanded session → window → pane tree; other sessions show only their name:
 
 ```tmux
 set -g focus-events on
@@ -564,7 +565,12 @@ bind-key "t" display-popup -w 80% -h 70% -E "sesh picker --tree"
 ```
 
 Enter focuses the selected session/window's active pane, or the exact selected
-pane. Tab/Shift-Tab navigate; Left/Right collapse/expand. Fuzzy search retains
+pane. OpenCode detection uses fresh plugin data or the pane's command, so missing
+status does not hide agent hierarchies. The hierarchy appears/disappears on live
+refresh as OpenCode starts/stops. Session-only rows do not expand or expose hidden
+windows/panes through search.
+
+Tab/Shift-Tab navigate; Left/Right collapse/expand. Fuzzy search retains
 parent context. The tree refreshes every second without resetting search or
 selection, including attached/current sessions.
 
