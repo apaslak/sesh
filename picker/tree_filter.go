@@ -108,15 +108,10 @@ func filterTreeRows(rows []treeRow, query string) []treeRow {
 			}
 		}
 	}
-	keep := make([]bool, len(rows))
-	for _, match := range fuzzy.Find(query, labels) {
-		keep[match.Index] = true
-	}
-	filtered := []treeRow{}
-	for i, row := range rows {
-		if keep[i] {
-			filtered = append(filtered, row)
-		}
+	matches := rankMatches(fuzzy.FindNoSort(query, labels))
+	filtered := make([]treeRow, 0, len(matches))
+	for _, match := range matches {
+		filtered = append(filtered, rows[match.Index])
 	}
 	return filtered
 }

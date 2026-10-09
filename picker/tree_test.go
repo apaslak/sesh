@@ -80,6 +80,33 @@ func TestTreeUnifiedSearchFindsSessionWithoutHiddenPaneDetails(t *testing.T) {
 	require.Empty(t, m.rows)
 }
 
+func TestTreeSearchRanksContiguousMatchBeforeScatteredAgentMatch(t *testing.T) {
+	m := NewTreeModel(nil, "2018")
+	data := treeFixture()
+	data.Topology.Sessions[0].Name = "zp4 can-2015"
+	data.Topology.Sessions[1].Name = "zp6 can-2018"
+	snapshot := data.Statuses["%2"]
+	snapshot.Title = "CAN-2015 depends on PR #382967"
+	data.Statuses["%2"] = snapshot
+	m.accept(data)
+	require.Len(t, m.rows, 2)
+	require.Equal(t, "zp6 can-2018", m.rows[0].label)
+	require.Equal(t, "zp4 can-2015 > CAN-2015 depends on PR #382967", m.rows[1].label)
+	m = updateTree(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	selection, picked := m.Chosen()
+	require.True(t, picked)
+	require.Equal(t, TreeTmuxSelection{Target: tmux.SessionTarget{Session: "$2"}}, selection)
+}
+
+func TestTreeSearchPreservesOriginalOrderForEqualScores(t *testing.T) {
+	rows := []treeRow{
+		{key: "first", label: "project"},
+		{key: "second", label: "project"},
+		{key: "third", label: "project"},
+	}
+	require.Equal(t, rows, filterTreeRows(rows, "proj"))
+}
+
 func TestTreeCtrlODoesNotSwitchUnifiedList(t *testing.T) {
 	m := NewTreeModel(nil, "work")
 	m.accept(treeFixture())
