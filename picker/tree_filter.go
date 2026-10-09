@@ -1,6 +1,7 @@
 package picker
 
 import (
+	"sort"
 	"strings"
 	"unicode"
 
@@ -66,6 +67,9 @@ func buildTreeRows(data TreeData) []treeRow {
 			}
 		}
 	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		return agentStatusPriority(rows[i].agent.status) < agentStatusPriority(rows[j].agent.status)
+	})
 	rows = append(rows, sessions...)
 	for _, key := range data.Entries.OrderedIndex {
 		entry, exists := data.Entries.Directory[key]
@@ -75,6 +79,24 @@ func buildTreeRows(data TreeData) []treeRow {
 		rows = append(rows, treeRow{key: "entry:" + entry.Src + ":" + key, label: "[" + safeTreeText(entry.Src) + "] " + safeTreeText(entry.Name), selection: TreeNameSelection{Name: entry.Name}})
 	}
 	return rows
+}
+
+// agentStatusPriority puts actionable agents first; idle and unavailable share
+// the final agent group without treating missing status as idle.
+func agentStatusPriority(status agentstatus.Status) int {
+	switch status := status.(type) {
+	case agentstatus.Finished:
+		if status.Read {
+			return 3
+		}
+		return 0
+	case agentstatus.Attention:
+		return 1
+	case agentstatus.Working:
+		return 2
+	default:
+		return 4
+	}
 }
 
 // paneHasOpenCode keeps agent rows and agent-free session rows mutually exclusive.

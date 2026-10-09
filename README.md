@@ -570,7 +570,9 @@ bind-key "t" display-popup -w 80% -h 70% -E "sesh picker --tree"
 
 The default **Tmux** view lists OpenCode agents first, followed by names of
 tmux sessions without OpenCode. Sessions already represented by agents do not
-get duplicate session rows. Agent rows show a colored symbol + status word,
+get duplicate session rows. Agents rank by status: unread, attention, working,
+read, then idle/unavailable. Existing order is preserved within each group and
+among agent-free sessions. Agent rows show a colored symbol + status word,
 `tmux session > conversation`, and the conversation directory.
 Agent rows use one line, with a muted, right-aligned path beside the title.
 Titles and paths truncate as needed rather than wrapping; status gets priority.
@@ -588,7 +590,8 @@ Left/Right
 edit the search text rather than folding a hierarchy.
 
 Fuzzy search matches session names, conversation titles, status, and conversation
-directories. Live refresh retains query/selection as agents start or stop.
+directories. Active searches rank by match quality, with status order breaking
+ties. Live refresh retains query/selection as agents start, stop, or change status.
 Detection uses fresh usable plugin metadata or an OpenCode pane command;
 title/path mentions alone do not identify agents.
 

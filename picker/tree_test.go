@@ -87,6 +87,8 @@ func TestTreeSearchRanksContiguousMatchBeforeScatteredAgentMatch(t *testing.T) {
 	data.Topology.Sessions[1].Name = "zp6 can-2018"
 	snapshot := data.Statuses["%2"]
 	snapshot.Title = "CAN-2015 depends on PR #382967"
+	// Even the highest-priority agent must trail a better search match.
+	snapshot.Status = agentstatus.Finished{Execution: "1"}
 	data.Statuses["%2"] = snapshot
 	m.accept(data)
 	require.Len(t, m.rows, 2)
@@ -105,6 +107,69 @@ func TestTreeSearchPreservesOriginalOrderForEqualScores(t *testing.T) {
 		{key: "third", label: "project"},
 	}
 	require.Equal(t, rows, filterTreeRows(rows, "proj"))
+}
+
+func TestTreeAgentStatusOrderPreservesOrderWithinGroups(t *testing.T) {
+	for _, query := range []string{"", "work"} {
+		t.Run("query="+query, func(t *testing.T) {
+			data := treeFixture()
+			data.Topology.Sessions[0].Windows[0].Panes = nil
+			for _, tc := range []struct {
+				pane   string
+				status agentstatus.Status
+			}{
+				{"%10", agentstatus.Finished{Execution: "1", Read: true}},
+				{"%11", nil},
+				{"%12", agentstatus.Working{Execution: "1"}},
+				{"%13", agentstatus.Attention{Reason: "permission"}},
+				{"%14", agentstatus.Finished{Execution: "1"}},
+				{"%15", agentstatus.Idle{}},
+				{"%16", agentstatus.Finished{Execution: "2"}},
+				{"%17", agentstatus.Attention{Reason: "failure"}},
+				{"%18", agentstatus.Working{Execution: "2"}},
+				{"%19", agentstatus.Finished{Execution: "2", Read: true}},
+			} {
+				data.Topology.Sessions[0].Windows[0].Panes = append(data.Topology.Sessions[0].Windows[0].Panes, tmux.TreePane{ID: tc.pane, Command: "opencode"})
+				data.Statuses[tc.pane] = agentstatus.Snapshot{Title: "Conversation", Directory: "/project", Status: tc.status}
+			}
+			data.Topology.Sessions[1].Name = "work plain"
+			data.Topology.Sessions[2].Name = "work other"
+			// Keep ordinary sessions interleaved in topology, not already at the end.
+			data.Topology.Sessions[0], data.Topology.Sessions[1] = data.Topology.Sessions[1], data.Topology.Sessions[0]
+			data.Entries = model.SeshSessions{Directory: model.SeshSessionMap{"/work": {Src: "config", Name: "work config"}}, OrderedIndex: []string{"/work"}}
+			m := NewTreeModel(nil, query)
+			m.accept(data)
+			keys := make([]string, len(m.rows))
+			for i, row := range m.rows {
+				keys[i] = row.key
+			}
+			require.Equal(t, []string{
+				"$1/@1/%14", "$1/@1/%16", "$1/@1/%13", "$1/@1/%17",
+				"$1/@1/%12", "$1/@1/%18", "$1/@1/%10", "$1/@1/%19",
+				"$1/@1/%11", "$1/@1/%15", "$2", "$3", "entry:config:/work",
+			}, keys)
+		})
+	}
+}
+
+func TestTreeStatusRefreshReordersWithoutChangingSelectedPane(t *testing.T) {
+	for _, query := range []string{"", "work"} {
+		t.Run("query="+query, func(t *testing.T) {
+			data := treeFixture()
+			m := NewTreeModel(nil, query)
+			m.accept(data)
+			require.Equal(t, "$1/@1/%2", m.selectedKey())
+			data.Statuses["%3"] = agentstatus.Snapshot{Title: "Review payments", Directory: "/conversation/project", Status: agentstatus.Finished{Execution: "1"}}
+			m = updateTree(t, m, treeLoaded{data: data})
+			require.Equal(t, "$1/@1/%3", m.rows[0].key)
+			require.Equal(t, "$1/@1/%2", m.selectedKey())
+			require.Equal(t, query, m.input.Value())
+			m = updateTree(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+			selection, picked := m.Chosen()
+			require.True(t, picked)
+			require.Equal(t, TreeTmuxSelection{Target: tmux.PaneTarget{Session: "$1", Window: "@1", Pane: "%2"}}, selection)
+		})
+	}
 }
 
 func TestTreeCtrlODoesNotSwitchUnifiedList(t *testing.T) {
