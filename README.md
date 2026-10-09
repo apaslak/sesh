@@ -554,6 +554,30 @@ Sesh has a built-in picker that can be used as a tmux popup:
 bind-key "K" display-popup -h 90% -w 50% -E "sesh picker -i"
 ```
 
+##### Live tmux tree with OpenCode V2 status
+
+Opt into a fully expanded session → window → pane picker, with no preview:
+
+```tmux
+set -g focus-events on
+bind-key "t" display-popup -w 80% -h 70% -E "sesh picker --tree"
+```
+
+Enter focuses the selected session/window's active pane, or the exact selected
+pane. Tab/Shift-Tab navigate; Left/Right collapse/expand. Fuzzy search retains
+parent context. The tree refreshes every second without resetting search or
+selection, including attached/current sessions.
+
+Ctrl-A shows all sources; Ctrl-T returns to the tmux tree; Ctrl-G shows configs;
+Ctrl-X shows zoxide; Ctrl-F searches directories (`fd` required). This mode has
+no deletion shortcut. Other picker modes are unchanged.
+
+Install the [OpenCode V2 CLI bridge](plugins/opencode-sesh/README.md) to show
+conversation titles, agents, working/idle/attention and finished read/unread
+states on pane rows. Without fresh plugin data, OpenCode panes show **status
+unavailable**; normal tmux navigation still works. Installation and replacing
+your binding are explicit setup steps, not automatic side effects of building.
+
 ## zsh keybind
 
 If you use zsh, you can add the following keybind to your `.zshrc` to connect to a session:

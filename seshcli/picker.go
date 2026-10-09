@@ -21,6 +21,9 @@ func NewPickerCommand(base *BaseDeps) *cobra.Command {
 			if deps.CachingLister != nil {
 				defer deps.CachingLister.Wait()
 			}
+			if tree, _ := cmd.Flags().GetBool("tree"); tree {
+				return runTreePicker(cmd, deps)
+			}
 
 			config, _ := cmd.Flags().GetBool("config")
 			tmux, _ := cmd.Flags().GetBool("tmux")
@@ -115,6 +118,7 @@ func NewPickerCommand(base *BaseDeps) *cobra.Command {
 	cmd.Flags().Bool("no-alias-auto", false, "don't auto-connect when an alias is fully typed")
 	cmd.Flags().Bool("preview", false, "show a preview of the highlighted session beside the list")
 	cmd.Flags().Bool("no-preview", false, "hide the preview pane")
+	cmd.Flags().Bool("tree", false, "live tmux session/window/pane tree with OpenCode status")
 
 	return cmd
 }

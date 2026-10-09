@@ -32,3 +32,6 @@ share/
 
 # Local benchmark runs charted by `just bench-compare`
 .bench/
+
+# OpenCode CLI plugin dependencies
+node_modules/
