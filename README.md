@@ -565,7 +565,7 @@ bind-key "t" display-popup -w 80% -h 70% -E "sesh picker --tree"
 
 The default **Agents** view shows one row per OpenCode pane: colored symbol +
 status word, `tmux session > conversation`, and the conversation directory.
-Agent rows use two lines at every width, with a muted path below the title.
+Agent rows use two lines at every width, with a muted, right-aligned path below the title.
 Selection uses a full-row background and `›` marker without losing status colors.
 The header shows the match count; keyboard hints stay at the bottom.
 Colors follow Catppuccin Macchiato. Paths under your home directory use `~`.

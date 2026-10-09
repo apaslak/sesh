@@ -189,6 +189,35 @@ func TestTreeHeaderCountsMatchesAndFooterStaysAtBottom(t *testing.T) {
 	require.Contains(t, lines[14], "Ctrl-O sessions")
 }
 
+func TestTreeAgentPathRightAlignedWithInset(t *testing.T) {
+	for _, tc := range []struct {
+		name, directory, home, want string
+		width                       int
+	}{
+		{"short path", "/project", "", "/project", 60},
+		{"home abbreviation", "/home/amy/project", "/home/amy", "~/project", 80},
+		{"unicode", "/项目", "", "/项目", 40},
+		{"unavailable", "", "", "path unavailable", 60},
+		{"truncated", "/a/very/long/directory", "", "/a/very…", 10},
+		{"one column", "/project", "", "", 1},
+		{"zero columns", "/project", "", "", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, selected := range []bool{false, true} {
+				row := treeRow{label: "session > title", agent: &agentRow{status: agentstatus.Idle{}, directory: tc.directory}}
+				lines := renderTreeRow(row, tc.width, tc.home, selected)
+				require.Len(t, lines, 2)
+				path := ansi.Strip(lines[1])
+				require.Equal(t, tc.width, ansi.StringWidth(path))
+				require.Equal(t, tc.want, strings.TrimSpace(path))
+				if tc.width > 0 {
+					require.True(t, strings.HasSuffix(path, tc.want+" "), path)
+				}
+			}
+		})
+	}
+}
+
 func TestTreeLayoutFitsTinyTerminals(t *testing.T) {
 	for _, size := range []struct{ width, height int }{{0, 0}, {1, 1}, {20, 3}, {30, 5}} {
 		m := NewTreeModel(nil, "")

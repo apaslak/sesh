@@ -69,6 +69,9 @@ func renderTreeRow(row treeRow, width int, home string, selected bool) []string 
 	indicator, statusColor := agentIndicator(row.agent.status)
 	badge := indicator + strings.Repeat(" ", max(0, 13-ansi.StringWidth(indicator)))
 	first := prefix + segment(badge+"  ", statusColor) + segment(row.label, lipgloss.Color("#cad3f5"))
-	second := segment("   "+agentDisplayPath(row.agent.directory, home), lipgloss.Color("#a5adcb"))
+	path := ansi.Truncate(agentDisplayPath(row.agent.directory, home), max(0, width-2), "…")
+	rightInset := min(1, width)
+	padding := strings.Repeat(" ", max(0, width-ansi.StringWidth(path)-rightInset))
+	second := segment(padding+path+strings.Repeat(" ", rightInset), lipgloss.Color("#a5adcb"))
 	return []string{finish(first), finish(second)}
 }
